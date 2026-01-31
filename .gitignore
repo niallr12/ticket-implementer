@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+ui/node_modules/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+ui/dist/
+*.js.map
+
+# Workspaces (cloned repos)
+.workspaces/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Claude Code local files
+.claude/
+
+# Test coverage
+coverage/

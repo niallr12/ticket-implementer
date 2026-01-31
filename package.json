@@ -1,0 +1,23 @@
+{
+  "name": "ticket-implementer",
+  "version": "1.0.0",
+  "description": "Automatically implement Azure DevOps tickets using GitHub Copilot SDK",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "server": "tsx server/index.ts",
+    "dev": "tsx server/index.ts"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^0.1.20",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.1.0"
+  }
+}
