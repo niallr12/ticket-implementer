@@ -13,6 +13,9 @@ import {
   commitAndPush,
   cleanupWorkspace,
   createPullRequest,
+  getDiff,
+  useLocalFolder,
+  isAzureDevOpsUrl,
   type CloneResult,
 } from "../../utils/azure-devops-git.js";
 
@@ -29,6 +32,8 @@ let currentTicket: WorkItem | null = null;
 let currentPlan: TicketPlan | null = null;
 let currentRepo: CloneResult | null = null;
 let currentRepoUrl: string | null = null;
+let sourceType: "remote" | "local" = "remote";
+let canCreatePr: boolean = false;
 
 ticketRouter.post("/fetch", async (req: Request, res: Response) => {
   const { url } = req.body;
@@ -87,6 +92,8 @@ ticketRouter.post("/clone", async (req: Request, res: Response) => {
     }
 
     currentRepoUrl = repoUrl;
+    sourceType = "remote";
+    canCreatePr = isAzureDevOpsUrl(repoUrl);
     currentRepo = await cloneAndBranch(
       repoUrl,
       currentTicket.id,
@@ -96,6 +103,8 @@ ticketRouter.post("/clone", async (req: Request, res: Response) => {
     res.json({
       localPath: currentRepo.localPath,
       branchName: currentRepo.branchName,
+      sourceType,
+      canCreatePr,
     });
   } catch (error) {
     res.status(500).json({
@@ -195,53 +204,8 @@ ticketRouter.post("/implement", async (req: Request, res: Response) => {
       })}\n\n`);
     }
 
-    // If we have a cloned repo, commit and push the changes
-    if (currentRepo && currentRepoUrl) {
-      res.write(`data: ${JSON.stringify({
-        type: "message",
-        content: "\nCommitting and pushing changes...\n",
-      })}\n\n`);
-
-      try {
-        await commitAndPush(
-          currentRepo.localPath,
-          currentRepo.branchName,
-          `Implement ticket #${currentTicket.id}: ${currentTicket.title}`
-        );
-        res.write(`data: ${JSON.stringify({
-          type: "message",
-          content: `Changes pushed to branch: ${currentRepo.branchName}\n`,
-        })}\n\n`);
-
-        // Create a pull request
-        res.write(`data: ${JSON.stringify({
-          type: "message",
-          content: "\nCreating pull request...\n",
-        })}\n\n`);
-
-        const prDescription = `## Ticket\n[#${currentTicket.id}: ${currentTicket.title}](${currentTicket.url})\n\n## Implementation\nThis PR implements the changes for ticket #${currentTicket.id}.\n\n## Plan\n${currentPlan.implementationPlan}`;
-
-        const pr = await createPullRequest(
-          currentRepoUrl,
-          currentRepo.branchName,
-          `[#${currentTicket.id}] ${currentTicket.title}`,
-          prDescription
-        );
-
-        res.write(`data: ${JSON.stringify({
-          type: "pr_created",
-          content: pr.url,
-        })}\n\n`);
-
-      } catch (pushError) {
-        res.write(`data: ${JSON.stringify({
-          type: "error",
-          content: `Failed to push/create PR: ${pushError instanceof Error ? pushError.message : "Unknown error"}`,
-        })}\n\n`);
-      }
-    }
-
-    res.write(`data: ${JSON.stringify({ type: "complete", content: "Implementation complete!" })}\n\n`);
+    // Don't auto-commit - let user review diff first
+    res.write(`data: ${JSON.stringify({ type: "complete", content: "Implementation complete! Review the changes below." })}\n\n`);
   } catch (error) {
     res.write(
       `data: ${JSON.stringify({
@@ -299,4 +263,239 @@ ticketRouter.get("/current", (_req: Request, res: Response) => {
     ticket: currentTicket,
     plan: currentPlan,
   });
+});
+
+ticketRouter.post("/use-local", async (req: Request, res: Response) => {
+  const { localPath } = req.body;
+
+  if (!currentTicket) {
+    res.status(400).json({ error: "No ticket fetched. Call /fetch first." });
+    return;
+  }
+
+  if (!localPath) {
+    res.status(400).json({ error: "localPath is required" });
+    return;
+  }
+
+  try {
+    // Clean up previous clone if exists
+    if (currentRepo && sourceType === "remote") {
+      cleanupWorkspace(currentRepo.localPath);
+    }
+
+    const result = await useLocalFolder(
+      localPath,
+      currentTicket.id,
+      currentTicket.title
+    );
+
+    currentRepo = { localPath: result.localPath, branchName: result.branchName };
+    currentRepoUrl = result.remoteUrl;
+    sourceType = "local";
+    canCreatePr = result.isAzureDevOps;
+
+    res.json({
+      localPath: result.localPath,
+      branchName: result.branchName,
+      sourceType,
+      canCreatePr,
+      remoteUrl: result.remoteUrl,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to use local folder",
+    });
+  }
+});
+
+ticketRouter.get("/diff", async (_req: Request, res: Response) => {
+  if (!currentRepo) {
+    res.status(400).json({ error: "No repository set up. Clone or use local folder first." });
+    return;
+  }
+
+  try {
+    const diff = getDiff(currentRepo.localPath);
+    res.json({ diff });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get diff",
+    });
+  }
+});
+
+ticketRouter.post("/create-pr", async (req: Request, res: Response) => {
+  if (!currentTicket || !currentPlan) {
+    res.status(400).json({ error: "No ticket or plan. Call /fetch and /plan first." });
+    return;
+  }
+
+  if (!currentRepo || !currentRepoUrl) {
+    res.status(400).json({ error: "No repository set up." });
+    return;
+  }
+
+  if (!canCreatePr) {
+    res.status(400).json({ error: "PR creation not supported for this remote. Only Azure DevOps repositories are supported." });
+    return;
+  }
+
+  try {
+    const prDescription = `## Ticket\n[#${currentTicket.id}: ${currentTicket.title}](${currentTicket.url})\n\n## Implementation\nThis PR implements the changes for ticket #${currentTicket.id}.\n\n## Plan\n${currentPlan.implementationPlan}`;
+
+    const pr = await createPullRequest(
+      currentRepoUrl,
+      currentRepo.branchName,
+      `[#${currentTicket.id}] ${currentTicket.title}`,
+      prDescription
+    );
+
+    res.json({
+      id: pr.id,
+      url: pr.url,
+      title: pr.title,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to create pull request",
+    });
+  }
+});
+
+ticketRouter.get("/repo-info", (_req: Request, res: Response) => {
+  res.json({
+    hasRepo: !!currentRepo,
+    sourceType,
+    canCreatePr,
+    branchName: currentRepo?.branchName || null,
+    localPath: currentRepo?.localPath || null,
+  });
+});
+
+ticketRouter.get("/browse-folder", async (_req: Request, res: Response) => {
+  try {
+    const platform = process.platform;
+    let command: string;
+
+    if (platform === "darwin") {
+      // macOS: Use osascript to show native folder picker
+      command = `osascript -e 'POSIX path of (choose folder with prompt "Select repository folder")'`;
+    } else if (platform === "linux") {
+      // Linux: Try zenity first, fall back to kdialog
+      command = `zenity --file-selection --directory 2>/dev/null || kdialog --getexistingdirectory ~`;
+    } else if (platform === "win32") {
+      // Windows: Use PowerShell
+      command = `powershell -Command "Add-Type -AssemblyName System.Windows.Forms; $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog; $folderBrowser.Description = 'Select repository folder'; $result = $folderBrowser.ShowDialog(); if ($result -eq 'OK') { $folderBrowser.SelectedPath }"`;
+    } else {
+      res.status(400).json({ error: "Unsupported platform" });
+      return;
+    }
+
+    const result = execSync(command, { encoding: "utf-8", timeout: 60000 }).trim();
+
+    if (result) {
+      res.json({ path: result });
+    } else {
+      res.status(400).json({ error: "No folder selected" });
+    }
+  } catch (error) {
+    // User cancelled the dialog
+    res.status(400).json({ error: "Folder selection cancelled" });
+  }
+});
+
+ticketRouter.post("/commit-push", async (req: Request, res: Response) => {
+  if (!currentTicket) {
+    res.status(400).json({ error: "No ticket. Call /fetch first." });
+    return;
+  }
+
+  if (!currentRepo) {
+    res.status(400).json({ error: "No repository set up." });
+    return;
+  }
+
+  try {
+    await commitAndPush(
+      currentRepo.localPath,
+      currentRepo.branchName,
+      `Implement ticket #${currentTicket.id}: ${currentTicket.title}`
+    );
+
+    res.json({
+      success: true,
+      branchName: currentRepo.branchName,
+      message: `Changes committed and pushed to branch: ${currentRepo.branchName}`,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to commit and push",
+    });
+  }
+});
+
+ticketRouter.post("/refine-code", async (req: Request, res: Response) => {
+  const { feedback, model } = req.body;
+
+  if (!currentTicket || !currentPlan) {
+    res.status(400).json({ error: "No ticket or plan. Call /fetch and /plan first." });
+    return;
+  }
+
+  if (!currentRepo) {
+    res.status(400).json({ error: "No repository set up." });
+    return;
+  }
+
+  if (!feedback) {
+    res.status(400).json({ error: "feedback is required" });
+    return;
+  }
+
+  // Set up SSE for streaming progress
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const selectedModel = model || "claude-sonnet-4.5";
+
+  try {
+    res.write(`data: ${JSON.stringify({
+      type: "message",
+      content: `Refining code based on feedback...\nUsing model: ${selectedModel}\n\n`,
+    })}\n\n`);
+
+    // Create a refinement prompt that includes the feedback
+    const refinementPlan = `
+Previous implementation context:
+${currentPlan.implementationPlan}
+
+User feedback for refinement:
+${feedback}
+
+Please make the requested changes to the code based on the feedback above.
+`;
+
+    await implementTicket(
+      currentTicket,
+      refinementPlan,
+      (progress) => {
+        res.write(`data: ${JSON.stringify(progress)}\n\n`);
+      },
+      currentRepo.localPath,
+      selectedModel
+    );
+
+    res.write(`data: ${JSON.stringify({ type: "complete", content: "Refinement complete! Review the updated changes." })}\n\n`);
+  } catch (error) {
+    res.write(
+      `data: ${JSON.stringify({
+        type: "error",
+        content: error instanceof Error ? error.message : "Unknown error",
+      })}\n\n`
+    );
+  } finally {
+    res.end();
+  }
 });

@@ -23,6 +23,12 @@ function sanitizeBranchName(name: string): string {
     .substring(0, 50);
 }
 
+function generateUniqueBranchName(ticketId: number, ticketTitle: string): string {
+  const timestamp = Date.now().toString(36); // Short base36 timestamp
+  const sanitized = sanitizeBranchName(ticketTitle);
+  return `feature/${ticketId}-${sanitized}-${timestamp}`;
+}
+
 export function parseAzureDevOpsRepoUrl(url: string): Omit<RepoConfig, "pat"> {
   // Format 1: https://dev.azure.com/{org}/{project}/_git/{repo}
   // Format 2: https://dev.azure.com/{org}/_git/{repo} (project = repo)
@@ -85,8 +91,8 @@ export async function cloneAndBranch(
   const timestamp = Date.now();
   const localPath = join(workspacePath, `${repoName}-${timestamp}`);
 
-  // Generate branch name from ticket
-  const branchName = `feature/${ticketId}-${sanitizeBranchName(ticketTitle)}`;
+  // Generate unique branch name from ticket
+  const branchName = generateUniqueBranchName(ticketId, ticketTitle);
 
   const cloneUrl = buildCloneUrl(config);
 
@@ -163,6 +169,81 @@ export async function commitAndPush(
 export function cleanupWorkspace(localPath: string): void {
   if (existsSync(localPath)) {
     rmSync(localPath, { recursive: true, force: true });
+  }
+}
+
+export function getDiff(localPath: string): string {
+  try {
+    // Get diff of all changes (staged and unstaged) compared to HEAD
+    const diff = execSync("git diff HEAD", {
+      cwd: localPath,
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large diffs
+    });
+    return diff;
+  } catch (error) {
+    throw new Error(
+      `Failed to get git diff: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
+  }
+}
+
+export function getRemoteUrl(localPath: string): string | null {
+  try {
+    const remoteUrl = execSync("git remote get-url origin", {
+      cwd: localPath,
+      encoding: "utf-8",
+    }).trim();
+    return remoteUrl || null;
+  } catch {
+    return null;
+  }
+}
+
+export function isAzureDevOpsUrl(url: string): boolean {
+  return url.includes("dev.azure.com") || url.includes("visualstudio.com");
+}
+
+export async function useLocalFolder(
+  localPath: string,
+  ticketId: number,
+  ticketTitle: string
+): Promise<CloneResult & { remoteUrl: string | null; isAzureDevOps: boolean }> {
+  // Validate the path exists
+  if (!existsSync(localPath)) {
+    throw new Error(`Path does not exist: ${localPath}`);
+  }
+
+  // Validate it's a git repository
+  try {
+    execSync("git rev-parse --git-dir", {
+      cwd: localPath,
+      stdio: "pipe",
+    });
+  } catch {
+    throw new Error(`Not a git repository: ${localPath}`);
+  }
+
+  // Get the remote URL
+  const remoteUrl = getRemoteUrl(localPath);
+  const isAzureDevOps = remoteUrl ? isAzureDevOpsUrl(remoteUrl) : false;
+
+  // Generate unique branch name from ticket
+  const branchName = generateUniqueBranchName(ticketId, ticketTitle);
+
+  try {
+    // Always create a new branch with unique name
+    console.log(`Creating branch ${branchName}...`);
+    execSync(`git checkout -b "${branchName}"`, {
+      cwd: localPath,
+      stdio: "pipe",
+    });
+
+    return { localPath, branchName, remoteUrl, isAzureDevOps };
+  } catch (error) {
+    throw new Error(
+      `Failed to set up branch: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
   }
 }
 

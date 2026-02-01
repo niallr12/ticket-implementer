@@ -1,5 +1,5 @@
 import { useState } from "react";
-import TicketInput from "./components/TicketInput";
+import TicketInput, { type RepoInfo } from "./components/TicketInput";
 import PlanReview, { type PostTask } from "./components/PlanReview";
 import Implementation from "./components/Implementation";
 
@@ -26,6 +26,7 @@ export default function App() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [selectedModel, setSelectedModel] = useState<string>("claude-sonnet-4.5");
   const [postTasks, setPostTasks] = useState<PostTask[]>([]);
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
 
   const handleTicketFetched = (fetchedTicket: Ticket) => {
     setTicket(fetchedTicket);
@@ -34,6 +35,10 @@ export default function App() {
   const handlePlanGenerated = (generatedPlan: Plan) => {
     setPlan(generatedPlan);
     setStep("review");
+  };
+
+  const handleRepoReady = (info: RepoInfo) => {
+    setRepoInfo(info);
   };
 
   const handleApprove = (model: string, tasks: PostTask[]) => {
@@ -52,6 +57,7 @@ export default function App() {
     setStep("input");
     setTicket(null);
     setPlan(null);
+    setRepoInfo(null);
   };
 
   return (
@@ -86,6 +92,7 @@ export default function App() {
         <TicketInput
           onTicketFetched={handleTicketFetched}
           onPlanGenerated={handlePlanGenerated}
+          onRepoReady={handleRepoReady}
           ticket={ticket}
         />
       )}
@@ -101,7 +108,12 @@ export default function App() {
       )}
 
       {step === "implement" && (
-        <Implementation onComplete={handleComplete} model={selectedModel} postTasks={postTasks} />
+        <Implementation
+          onComplete={handleComplete}
+          model={selectedModel}
+          postTasks={postTasks}
+          canCreatePr={repoInfo?.canCreatePr ?? false}
+        />
       )}
     </div>
   );

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 interface ProgressLine {
-  type: "message" | "tool_start" | "tool_end" | "complete" | "error" | "pr_created" | "post_task";
+  type: "message" | "tool_start" | "tool_end" | "complete" | "error" | "pr_created" | "post_task" | "changes_pushed";
   content: string;
 }
 
@@ -44,20 +44,90 @@ interface Props {
   onComplete: () => void;
   model: string;
   postTasks: PostTask[];
+  canCreatePr: boolean;
 }
 
-export default function Implementation({ onComplete, model, postTasks }: Props) {
+export default function Implementation({ onComplete, model, postTasks, canCreatePr }: Props) {
   const [lines, setLines] = useState<ProgressLine[]>([]);
   const [isComplete, setIsComplete] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [prUrl, setPrUrl] = useState<string | null>(null);
+  const [changesPushed, setChangesPushed] = useState(false);
+  const [diff, setDiff] = useState<string | null>(null);
+  const [loadingDiff, setLoadingDiff] = useState(false);
+  const [creatingPr, setCreatingPr] = useState(false);
+  const [prError, setPrError] = useState<string | null>(null);
+  const [commitPushError, setCommitPushError] = useState<string | null>(null);
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [refineFeedback, setRefineFeedback] = useState("");
+  const [isRefining, setIsRefining] = useState(false);
+  const hasStarted = useRef(false);
+
+  const parseSSEStream = async (response: Response, onData: (data: ProgressLine) => void) => {
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) return;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const text = decoder.decode(value);
+      const lines = text.split("\n");
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6)) as ProgressLine;
+            onData(data);
+          } catch {
+            // Ignore parse errors
+          }
+        }
+      }
+    }
+  };
+
+  const handleSSEData = (data: ProgressLine) => {
+    // For message type, accumulate content into the last message line
+    if (data.type === "message") {
+      setLines((prev) => {
+        const lastIndex = prev.length - 1;
+        if (lastIndex >= 0 && prev[lastIndex].type === "message") {
+          // Append to existing message
+          const updated = [...prev];
+          updated[lastIndex] = {
+            ...updated[lastIndex],
+            content: updated[lastIndex].content + data.content,
+          };
+          return updated;
+        }
+        // Start new message block
+        return [...prev, data];
+      });
+    } else {
+      // For other types (tool events, errors, etc.), add as new line
+      setLines((prev) => [...prev, data]);
+    }
+
+    if (data.type === "complete") {
+      setIsComplete(true);
+      setIsRefining(false);
+    } else if (data.type === "error") {
+      setHasError(true);
+      setIsRefining(false);
+    } else if (data.type === "pr_created") {
+      setPrUrl(data.content);
+    } else if (data.type === "changes_pushed") {
+      setChangesPushed(true);
+    }
+  };
 
   useEffect(() => {
-    const eventSource = new EventSource("/api/ticket/implement", {
-      withCredentials: false,
-    });
+    if (hasStarted.current) return;
+    hasStarted.current = true;
 
-    // For POST requests, we need to use fetch with SSE parsing
     const startImplementation = async () => {
       try {
         const response = await fetch("/api/ticket/implement", {
@@ -66,57 +136,7 @@ export default function Implementation({ onComplete, model, postTasks }: Props) 
           body: JSON.stringify({ model, postTasks }),
         });
 
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-
-        if (!reader) return;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const text = decoder.decode(value);
-          const lines = text.split("\n");
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6)) as ProgressLine;
-
-                // For message type, accumulate content into the last message line
-                if (data.type === "message") {
-                  setLines((prev) => {
-                    const lastIndex = prev.length - 1;
-                    if (lastIndex >= 0 && prev[lastIndex].type === "message") {
-                      // Append to existing message
-                      const updated = [...prev];
-                      updated[lastIndex] = {
-                        ...updated[lastIndex],
-                        content: updated[lastIndex].content + data.content,
-                      };
-                      return updated;
-                    }
-                    // Start new message block
-                    return [...prev, data];
-                  });
-                } else {
-                  // For other types (tool events, errors, etc.), add as new line
-                  setLines((prev) => [...prev, data]);
-                }
-
-                if (data.type === "complete") {
-                  setIsComplete(true);
-                } else if (data.type === "error") {
-                  setHasError(true);
-                } else if (data.type === "pr_created") {
-                  setPrUrl(data.content);
-                }
-              } catch {
-                // Ignore parse errors
-              }
-            }
-          }
-        }
+        await parseSSEStream(response, handleSSEData);
       } catch (err) {
         setLines((prev) => [
           ...prev,
@@ -127,11 +147,102 @@ export default function Implementation({ onComplete, model, postTasks }: Props) 
     };
 
     startImplementation();
+  }, [model, postTasks]);
 
-    return () => {
-      eventSource.close();
-    };
-  }, []);
+  // Fetch diff when implementation completes (and after refinements)
+  useEffect(() => {
+    if (isComplete && !changesPushed) {
+      const fetchDiff = async () => {
+        setLoadingDiff(true);
+        try {
+          const response = await fetch("/api/ticket/diff");
+          const data = await response.json();
+          if (response.ok) {
+            setDiff(data.diff || "(No changes detected)");
+          }
+        } catch {
+          // Silently fail - diff is optional
+        } finally {
+          setLoadingDiff(false);
+        }
+      };
+      fetchDiff();
+    }
+  }, [isComplete, changesPushed, isRefining]);
+
+  const handleCommitPush = async () => {
+    setIsCommitting(true);
+    setCommitPushError(null);
+    try {
+      const response = await fetch("/api/ticket/commit-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to commit and push");
+      }
+      setChangesPushed(true);
+      setLines((prev) => [
+        ...prev,
+        { type: "message", content: `\n${data.message}\n` },
+      ]);
+    } catch (err) {
+      setCommitPushError(err instanceof Error ? err.message : "Failed to commit and push");
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  const handleRefineCode = async () => {
+    if (!refineFeedback.trim()) return;
+
+    setIsRefining(true);
+    setIsComplete(false);
+    setDiff(null);
+    setLines((prev) => [
+      ...prev,
+      { type: "message", content: `\n--- Requesting Changes ---\nFeedback: ${refineFeedback}\n\n` },
+    ]);
+
+    try {
+      const response = await fetch("/api/ticket/refine-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback: refineFeedback, model }),
+      });
+
+      await parseSSEStream(response, handleSSEData);
+      setRefineFeedback("");
+    } catch (err) {
+      setLines((prev) => [
+        ...prev,
+        { type: "error", content: err instanceof Error ? err.message : "Refinement failed" },
+      ]);
+      setHasError(true);
+      setIsRefining(false);
+    }
+  };
+
+  const handleCreatePr = async () => {
+    setCreatingPr(true);
+    setPrError(null);
+    try {
+      const response = await fetch("/api/ticket/create-pr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create PR");
+      }
+      setPrUrl(data.url);
+    } catch (err) {
+      setPrError(err instanceof Error ? err.message : "Failed to create PR");
+    } finally {
+      setCreatingPr(false);
+    }
+  };
 
   const getLineClass = (type: ProgressLine["type"]) => {
     switch (type) {
@@ -148,6 +259,10 @@ export default function Implementation({ onComplete, model, postTasks }: Props) 
         return "progress-line";
     }
   };
+
+  const isWorking = !isComplete && !hasError;
+  const canRefine = isComplete && !changesPushed && !isRefining;
+  const canCommit = isComplete && !changesPushed && !isRefining && diff && diff !== "(No changes detected)";
 
   return (
     <div className="card">
@@ -167,9 +282,64 @@ export default function Implementation({ onComplete, model, postTasks }: Props) 
                 : line.content}
           </div>
         ))}
-        {!isComplete && !hasError && <div className="progress-line">▌</div>}
+        {isWorking && <div className="progress-line">▌</div>}
       </div>
 
+      {/* Show diff after implementation (before commit) */}
+      {isComplete && !changesPushed && loadingDiff && (
+        <div className="diff-section">
+          <h4>Git Diff (Uncommitted Changes)</h4>
+          <div className="loading-diff">Loading diff...</div>
+        </div>
+      )}
+
+      {isComplete && !changesPushed && diff !== null && (
+        <div className="diff-section">
+          <h4>Git Diff (Uncommitted Changes)</h4>
+          <pre className="diff-output">{diff}</pre>
+        </div>
+      )}
+
+      {/* Request changes section - only show before commit */}
+      {canRefine && (
+        <div className="refine-code-section">
+          <h4>Request Changes</h4>
+          <p className="refine-hint">Not happy with the changes? Provide feedback to refine the implementation.</p>
+          <div className="refine-input-group">
+            <textarea
+              className="refine-textarea"
+              value={refineFeedback}
+              onChange={(e) => setRefineFeedback(e.target.value)}
+              placeholder="e.g., Add error handling, use a different approach, fix the styling..."
+              rows={3}
+              disabled={isRefining}
+            />
+            <button
+              className="refine-button"
+              onClick={handleRefineCode}
+              disabled={isRefining || !refineFeedback.trim()}
+            >
+              {isRefining ? "Refining..." : "Request Changes"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Commit & Push section - only show before commit */}
+      {canCommit && (
+        <div className="commit-section">
+          <button
+            className="primary commit-button"
+            onClick={handleCommitPush}
+            disabled={isCommitting}
+          >
+            {isCommitting ? "Committing & Pushing..." : "Commit & Push Changes"}
+          </button>
+          {commitPushError && <p className="error">{commitPushError}</p>}
+        </div>
+      )}
+
+      {/* PR section - only show after commit */}
       {prUrl && (
         <div className="pr-banner">
           <div className="pr-icon">🎉</div>
@@ -190,10 +360,29 @@ export default function Implementation({ onComplete, model, postTasks }: Props) 
         </div>
       )}
 
-      {(isComplete || hasError) && (
+      {changesPushed && !prUrl && canCreatePr && (
+        <div className="create-pr-section">
+          <button
+            className="primary"
+            onClick={handleCreatePr}
+            disabled={creatingPr}
+          >
+            {creatingPr ? "Creating Pull Request..." : "Create Pull Request"}
+          </button>
+          {prError && <p className="error">{prError}</p>}
+        </div>
+      )}
+
+      {changesPushed && !prUrl && !canCreatePr && (
+        <div className="pr-not-available">
+          PR creation is only available for Azure DevOps repositories.
+        </div>
+      )}
+
+      {(isComplete || hasError) && !isRefining && (
         <div className="button-group">
-          <button className="primary" onClick={onComplete}>
-            {hasError ? "Try Again" : "Done"}
+          <button className="secondary" onClick={onComplete}>
+            {hasError ? "Start Over" : "Done"}
           </button>
         </div>
       )}

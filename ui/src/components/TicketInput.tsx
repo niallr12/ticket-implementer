@@ -15,22 +15,29 @@ interface Plan {
   implementationPlan: string;
 }
 
-interface RepoInfo {
+export interface RepoInfo {
   localPath: string;
   branchName: string;
+  sourceType: "remote" | "local";
+  canCreatePr: boolean;
+  remoteUrl?: string | null;
 }
 
 interface Props {
   onTicketFetched: (ticket: Ticket) => void;
   onPlanGenerated: (plan: Plan) => void;
+  onRepoReady: (info: RepoInfo) => void;
   ticket: Ticket | null;
 }
 
-export default function TicketInput({ onTicketFetched, onPlanGenerated, ticket }: Props) {
+export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoReady, ticket }: Props) {
   const [ticketUrl, setTicketUrl] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
+  const [localPath, setLocalPath] = useState("");
+  const [sourceMode, setSourceMode] = useState<"remote" | "local">("remote");
   const [loading, setLoading] = useState(false);
   const [cloningRepo, setCloningRepo] = useState(false);
+  const [settingUpLocal, setSettingUpLocal] = useState(false);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [error, setError] = useState("");
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
@@ -88,10 +95,42 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, ticket }
       }
 
       setRepoInfo(data);
+      onRepoReady(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to clone repository");
     } finally {
       setCloningRepo(false);
+    }
+  };
+
+  const handleUseLocalFolder = async () => {
+    if (!localPath.trim()) {
+      setError("Please enter a local folder path");
+      return;
+    }
+
+    setSettingUpLocal(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/ticket/use-local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ localPath }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to set up local folder");
+      }
+
+      setRepoInfo(data);
+      onRepoReady(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set up local folder");
+    } finally {
+      setSettingUpLocal(false);
     }
   };
 
@@ -124,7 +163,7 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, ticket }
     }
   };
 
-  const isProcessing = loading || cloningRepo || generatingPlan;
+  const isProcessing = loading || cloningRepo || settingUpLocal || generatingPlan;
 
   return (
     <div className="card">
@@ -163,33 +202,108 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, ticket }
             />
           </div>
 
-          <div className="form-group">
-            <label htmlFor="repo-url">Target Repository URL</label>
-            <input
-              id="repo-url"
-              type="text"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://dev.azure.com/org/_git/repo-name"
-              disabled={isProcessing || !!repoInfo}
-            />
+          <div className="source-toggle">
+            <label className="toggle-option">
+              <input
+                type="radio"
+                name="source-mode"
+                value="remote"
+                checked={sourceMode === "remote"}
+                onChange={() => setSourceMode("remote")}
+                disabled={isProcessing || !!repoInfo}
+              />
+              Clone from URL
+            </label>
+            <label className="toggle-option">
+              <input
+                type="radio"
+                name="source-mode"
+                value="local"
+                checked={sourceMode === "local"}
+                onChange={() => setSourceMode("local")}
+                disabled={isProcessing || !!repoInfo}
+              />
+              Use Local Folder
+            </label>
           </div>
 
+          {sourceMode === "remote" ? (
+            <div className="form-group">
+              <label htmlFor="repo-url">Target Repository URL</label>
+              <input
+                id="repo-url"
+                type="text"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://dev.azure.com/org/_git/repo-name"
+                disabled={isProcessing || !!repoInfo}
+              />
+            </div>
+          ) : (
+            <div className="form-group">
+              <label htmlFor="local-path">Local Folder Path</label>
+              <div className="path-input-group">
+                <input
+                  id="local-path"
+                  type="text"
+                  value={localPath}
+                  onChange={(e) => setLocalPath(e.target.value)}
+                  placeholder="/path/to/your/repository"
+                  disabled={isProcessing || !!repoInfo}
+                />
+                <button
+                  type="button"
+                  className="browse-button"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch("/api/ticket/browse-folder");
+                      const data = await response.json();
+                      if (response.ok && data.path) {
+                        setLocalPath(data.path);
+                      }
+                    } catch {
+                      // User cancelled or error occurred
+                    }
+                  }}
+                  disabled={isProcessing || !!repoInfo}
+                >
+                  Browse
+                </button>
+              </div>
+              <div className="input-hint">
+                Tip: In Finder, right-click folder → "Copy as Pathname", then paste
+              </div>
+            </div>
+          )}
+
           {!repoInfo ? (
-            <button
-              className="primary"
-              onClick={handleCloneRepo}
-              disabled={cloningRepo || !repoUrl.trim()}
-            >
-              {cloningRepo ? "Cloning Repository..." : "Clone Repository"}
-            </button>
+            sourceMode === "remote" ? (
+              <button
+                className="primary"
+                onClick={handleCloneRepo}
+                disabled={cloningRepo || !repoUrl.trim()}
+              >
+                {cloningRepo ? "Cloning Repository..." : "Clone Repository"}
+              </button>
+            ) : (
+              <button
+                className="primary"
+                onClick={handleUseLocalFolder}
+                disabled={settingUpLocal || !localPath.trim()}
+              >
+                {settingUpLocal ? "Setting Up..." : "Use Local Folder"}
+              </button>
+            )
           ) : (
             <>
               <div className="success-banner">
                 <span className="success-icon">✓</span>
                 <div>
-                  <strong>Repository cloned</strong>
+                  <strong>{repoInfo.sourceType === "local" ? "Local folder ready" : "Repository cloned"}</strong>
                   <div className="branch-name">{repoInfo.branchName}</div>
+                  {repoInfo.sourceType === "local" && !repoInfo.canCreatePr && (
+                    <div className="warning-text">PR creation not available (non-Azure DevOps remote)</div>
+                  )}
                 </div>
               </div>
 
