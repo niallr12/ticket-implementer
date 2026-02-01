@@ -168,6 +168,7 @@ Follow the provided implementation plan step by step.`,
   });
 
   try {
+    // Use 10 minute timeout for complex implementations
     await session.sendAndWait({
       prompt: `Implement this ticket:
 
@@ -178,7 +179,7 @@ Implementation Plan:
 ${plan}
 
 Please implement these changes now. Create or modify files as needed.`,
-    });
+    }, 600000);
   } catch (error) {
     onProgress({
       type: "error",

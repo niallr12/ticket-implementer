@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 
 interface ProgressLine {
   type: "message" | "tool_start" | "tool_end" | "complete" | "error" | "pr_created" | "post_task" | "changes_pushed";
@@ -61,7 +61,43 @@ export default function Implementation({ onComplete, model, postTasks, canCreate
   const [isCommitting, setIsCommitting] = useState(false);
   const [refineFeedback, setRefineFeedback] = useState("");
   const [isRefining, setIsRefining] = useState(false);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const hasStarted = useRef(false);
+
+  // Parse diff into individual files (simple parser)
+  const parsedFiles = useMemo(() => {
+    if (!diff || diff === "(No changes detected)") return [];
+
+    const files: { name: string; lines: string[] }[] = [];
+    let currentFile: { name: string; lines: string[] } | null = null;
+
+    for (const line of diff.split("\n")) {
+      // New file starts with "diff --git" or "+++ b/filename"
+      if (line.startsWith("diff --git")) {
+        const match = line.match(/diff --git a\/.+ b\/(.+)/);
+        if (match) {
+          currentFile = { name: match[1], lines: [] };
+          files.push(currentFile);
+        }
+      } else if (line.startsWith("+++") && !currentFile) {
+        // Fallback for diffs without "diff --git" header
+        const match = line.match(/\+\+\+ [ab]?\/?(.*)/);
+        if (match && match[1]) {
+          currentFile = { name: match[1], lines: [] };
+          files.push(currentFile);
+        }
+      } else if (currentFile && !line.startsWith("---") && !line.startsWith("+++") && !line.startsWith("index ")) {
+        currentFile.lines.push(line);
+      }
+    }
+
+    return files;
+  }, [diff]);
+
+  // Reset selected file when diff changes
+  useEffect(() => {
+    setSelectedFileIndex(0);
+  }, [diff]);
 
   const parseSSEStream = async (response: Response, onData: (data: ProgressLine) => void) => {
     const reader = response.body?.getReader();
@@ -296,7 +332,44 @@ export default function Implementation({ onComplete, model, postTasks, canCreate
       {isComplete && !changesPushed && diff !== null && (
         <div className="diff-section">
           <h4>Git Diff (Uncommitted Changes)</h4>
-          <pre className="diff-output">{diff}</pre>
+          {diff === "(No changes detected)" ? (
+            <pre className="diff-output">{diff}</pre>
+          ) : parsedFiles.length === 0 ? (
+            <pre className="diff-output">{diff}</pre>
+          ) : (
+            <>
+              {/* File tabs */}
+              <div className="diff-tabs">
+                {parsedFiles.map((file, index) => {
+                  const shortName = file.name.split("/").pop() || file.name;
+                  return (
+                    <button
+                      key={index}
+                      className={`diff-tab ${selectedFileIndex === index ? "active" : ""}`}
+                      onClick={() => setSelectedFileIndex(index)}
+                      title={file.name}
+                    >
+                      {shortName}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Selected file diff */}
+              <pre className="diff-output colored">
+                {parsedFiles[selectedFileIndex]?.lines.map((line, i) => {
+                  let className = "diff-line";
+                  if (line.startsWith("+")) className += " added";
+                  else if (line.startsWith("-")) className += " removed";
+                  else if (line.startsWith("@@")) className += " hunk";
+                  return (
+                    <div key={i} className={className}>
+                      {line}
+                    </div>
+                  );
+                })}
+              </pre>
+            </>
+          )}
         </div>
       )}
 
