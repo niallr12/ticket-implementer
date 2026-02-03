@@ -15,22 +15,28 @@ This document explains how to use custom instruction files, skills, and MCP serv
 
 Custom instructions allow you to define behavior rules and context for the Copilot assistant.
 
-### Automatic Discovery (Recommended)
+### Loading Instructions (Manual Required)
 
-The Copilot CLI **automatically discovers** instruction files when you set `workingDirectory`. Just place your instruction files in `.github/instructions/` and set the working directory:
+**Important:** The SDK does NOT automatically discover instruction files. You must load them manually and inject them via `systemMessage`.
+
+This application handles this automatically - when you set `workingDirectory`, the code loads all `*.instructions.md` files from `.github/instructions/` and injects them into the session:
 
 ```typescript
+// This is handled automatically by our copilot.ts service
+const customInstructions = loadInstructionFiles(workingDirectory);
+
 const session = await client.createSession({
   model: "gpt-4.1",
-  workingDirectory: "/path/to/your/repo",  // CLI discovers .github/instructions/ automatically
+  workingDirectory: "/path/to/your/repo",
+  systemMessage: {
+    mode: "append",
+    content: customInstructions,  // Injected instruction content
+  },
 });
 ```
 
-The CLI looks for:
-- `.github/copilot-instructions.md` - Single instruction file
+Place your instruction files in:
 - `.github/instructions/*.instructions.md` - Multiple instruction files
-
-**No manual file loading required!**
 
 ### Instruction File Format
 
@@ -244,32 +250,36 @@ const session = await client.createSession({
 
 ---
 
-## How Auto-Discovery Works
+## How This Application Handles Instructions
 
-The Copilot CLI automatically discovers and applies configuration from standard locations when `workingDirectory` is set.
+The SDK does **not** auto-discover instruction files - this is a feature of VS Code's Copilot extension, not the SDK. Our application manually loads and injects them.
 
-### What's Auto-Discovered
+### What's Handled
 
-| Location | Auto-Discovered | Notes |
-|----------|-----------------|-------|
-| `.github/copilot-instructions.md` | ✅ Yes | Single instruction file |
-| `.github/instructions/*.instructions.md` | ✅ Yes | Multiple instruction files |
-| `.github/skills/` | ❌ No | Must specify via `skillDirectories` |
-| MCP servers | ❌ No | Must specify via `mcpServers` |
+| Location | How Handled | Notes |
+|----------|-------------|-------|
+| `.github/instructions/*.instructions.md` | Loaded manually | Injected via `systemMessage` |
+| `.github/skills/` | Configured manually | Passed via `skillDirectories` |
+| MCP servers | Configured manually | Passed via `mcpServers` |
 
-### Setting Working Directory
+### How It Works
+
+When `workingDirectory` is set, our code:
+1. Checks for `.github/instructions/` in that directory
+2. Loads all `*.instructions.md` files
+3. Strips YAML frontmatter
+4. Wraps content in `<custom_instructions>` tags
+5. Injects into `systemMessage` with `mode: "append"`
 
 ```typescript
+// workingDirectory enables:
+// - Tool operations relative to this path
+// - Our custom instruction loading (via loadInstructionFiles)
 const session = await client.createSession({
   model: "gpt-4.1",
   workingDirectory: "/path/to/your/repo",
 });
 ```
-
-This single setting enables:
-- Instruction file discovery
-- Relative path resolution for tools
-- Context awareness of the codebase
 
 ### Creating Instruction Files
 

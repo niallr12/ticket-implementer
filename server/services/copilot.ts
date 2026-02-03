@@ -8,19 +8,9 @@ export interface TicketPlan {
   implementationPlan: string;
 }
 
-/**
- * Gets skill directories if .github/skills exists in the working directory.
- * The SDK doesn't auto-discover skill directories, so we need to specify them.
- */
 function getSkillDirectories(workingDirectory: string): string[] {
   const skillsDir = path.join(workingDirectory, ".github", "skills");
-
-  if (fs.existsSync(skillsDir)) {
-    console.log(`Found skills directory: ${skillsDir}`);
-    return [skillsDir];
-  }
-
-  return [];
+  return fs.existsSync(skillsDir) ? [skillsDir] : [];
 }
 
 export interface ImplementationProgress {
@@ -56,24 +46,17 @@ export async function generatePlan(
   ticket: WorkItem,
   workingDirectory?: string
 ): Promise<TicketPlan> {
-  console.log("Creating Copilot client...");
-  const client = new CopilotClient();
-
-  // Get skill directories if they exist (SDK doesn't auto-discover these)
+  const clientOptions = workingDirectory ? { cwd: workingDirectory } : {};
+  const client = new CopilotClient(clientOptions);
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
 
-  console.log("Creating session...");
-  // The SDK automatically discovers instruction files from .github/instructions/
-  // when workingDirectory is set - no need to manually load them
   const session = await client.createSession({
     model: "gpt-4.1",
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
   });
-
-  console.log("Sending prompt...");
   const result = await session.sendAndWait({
     prompt: `You are a senior software engineer. Analyze this ticket and create an implementation plan.
 
@@ -87,12 +70,10 @@ Please provide:
 2. A numbered implementation plan with specific steps`,
   });
 
-  console.log("Got response, cleaning up...");
   await session.destroy();
   await client.stop();
 
   const response = result?.data?.content || "";
-  console.log("Response length:", response.length);
 
   // Clean up markdown artifacts
   const cleanMarkdown = (text: string) => {
@@ -133,16 +114,13 @@ export async function refinePlan(
   feedback: string,
   workingDirectory?: string
 ): Promise<string> {
-  console.log("Refining plan with feedback...");
-  const client = new CopilotClient();
-
-  // Get skill directories if they exist
+  const client = new CopilotClient({
+    ...(workingDirectory && { cwd: workingDirectory }),
+  });
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
 
-  // The SDK automatically discovers instruction files from .github/instructions/
-  // when workingDirectory is set
   const session = await client.createSession({
     model: "gpt-4.1",
     ...(workingDirectory && { workingDirectory }),
@@ -177,19 +155,12 @@ export async function implementTicket(
   workingDirectory?: string,
   model: string = "claude-sonnet-4.5"
 ): Promise<void> {
-  const client = new CopilotClient();
-
-  // Get skill directories if they exist
+  const clientOptions = workingDirectory ? { cwd: workingDirectory } : {};
+  const client = new CopilotClient(clientOptions);
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
 
-  if (skillDirectories.length > 0) {
-    console.log(`Using skill directories: ${skillDirectories.join(", ")}`);
-  }
-
-  // The SDK automatically discovers instruction files from .github/instructions/
-  // when workingDirectory is set - no need to manually load them
   const session = await client.createSession({
     model,
     streaming: true,

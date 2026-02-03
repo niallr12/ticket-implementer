@@ -174,12 +174,56 @@ export function cleanupWorkspace(localPath: string): void {
 
 export function getDiff(localPath: string): string {
   try {
-    // Get diff of all changes (staged and unstaged) compared to HEAD
-    const diff = execSync("git diff HEAD", {
+    // First check for uncommitted changes
+    let diff = execSync("git diff HEAD", {
       cwd: localPath,
       encoding: "utf-8",
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large diffs
     });
+
+    // If no uncommitted changes, show diff of all commits on this branch vs main
+    if (!diff.trim()) {
+      // Find the merge-base with main/master
+      let baseBranch = "main";
+      try {
+        execSync("git rev-parse --verify main", { cwd: localPath, stdio: "pipe" });
+      } catch {
+        try {
+          execSync("git rev-parse --verify master", { cwd: localPath, stdio: "pipe" });
+          baseBranch = "master";
+        } catch {
+          // No main or master, try origin/main
+          try {
+            execSync("git rev-parse --verify origin/main", { cwd: localPath, stdio: "pipe" });
+            baseBranch = "origin/main";
+          } catch {
+            baseBranch = "origin/master";
+          }
+        }
+      }
+
+      // Get diff from merge-base to current HEAD (all changes on this branch)
+      try {
+        const mergeBase = execSync(`git merge-base ${baseBranch} HEAD`, {
+          cwd: localPath,
+          encoding: "utf-8",
+        }).trim();
+
+        diff = execSync(`git diff ${mergeBase}..HEAD`, {
+          cwd: localPath,
+          encoding: "utf-8",
+          maxBuffer: 10 * 1024 * 1024,
+        });
+      } catch {
+        // If merge-base fails, just show recent commits diff
+        diff = execSync(`git diff HEAD~1..HEAD 2>/dev/null || echo ""`, {
+          cwd: localPath,
+          encoding: "utf-8",
+          maxBuffer: 10 * 1024 * 1024,
+        });
+      }
+    }
+
     return diff;
   } catch (error) {
     throw new Error(

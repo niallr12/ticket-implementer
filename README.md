@@ -228,17 +228,20 @@ Features:
 
 ## Custom Instructions & Skills
 
-The Copilot CLI automatically discovers and applies custom instructions from repositories.
+This application loads custom instructions from repositories and injects them into Copilot sessions.
 
-### Auto-Discovery
+**Note:** The SDK does not auto-discover instructions - our code handles this manually.
 
-When `workingDirectory` is set, the CLI automatically discovers:
+### How It Works
 
-| Location | Auto-Discovered |
-|----------|-----------------|
-| `.github/copilot-instructions.md` | ✅ Yes |
-| `.github/instructions/*.instructions.md` | ✅ Yes |
-| `.github/skills/` | Requires `skillDirectories` config |
+When `workingDirectory` is set, the application:
+1. Loads all `*.instructions.md` files from `.github/instructions/`
+2. Injects them into the session via `systemMessage`
+
+| Location | Handling |
+|----------|----------|
+| `.github/instructions/*.instructions.md` | Loaded and injected automatically |
+| `.github/skills/` | Configured via `skillDirectories` |
 
 ### Creating Instruction Files
 
