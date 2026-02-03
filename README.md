@@ -226,6 +226,47 @@ Features:
 | `ADO_PAT` | Azure DevOps Personal Access Token | Only for Azure DevOps features |
 | `PORT` | Server port (default: 3001) | No |
 
+## Custom Instructions & Skills
+
+The Copilot CLI automatically discovers and applies custom instructions from repositories.
+
+### Auto-Discovery
+
+When `workingDirectory` is set, the CLI automatically discovers:
+
+| Location | Auto-Discovered |
+|----------|-----------------|
+| `.github/copilot-instructions.md` | ✅ Yes |
+| `.github/instructions/*.instructions.md` | ✅ Yes |
+| `.github/skills/` | Requires `skillDirectories` config |
+
+### Creating Instruction Files
+
+Create instruction files in `.github/instructions/` with the `.instructions.md` extension:
+
+```markdown
+---
+applyTo: "**.ts, **.tsx"
+description: "Coding standards for this project"
+name: "Project Standards"
+---
+
+## Rules
+
+- Use strict TypeScript mode
+- Write tests for all new features
+- Follow the existing code style
+```
+
+Instructions are automatically applied when the working directory is set during:
+- Plan generation
+- Plan refinement
+- Implementation
+
+For detailed documentation on custom instructions, skills, and MCP servers, see [docs/COPILOT-SDK-CUSTOMIZATION.md](docs/COPILOT-SDK-CUSTOMIZATION.md).
+
+---
+
 ## How It Works
 
 ### Architecture Flow

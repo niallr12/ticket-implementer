@@ -1,9 +1,26 @@
 import { CopilotClient } from "@github/copilot-sdk";
 import { getWorkItem, type WorkItem } from "../../utils/azure-devops.js";
+import * as fs from "fs";
+import * as path from "path";
 
 export interface TicketPlan {
   summary: string;
   implementationPlan: string;
+}
+
+/**
+ * Gets skill directories if .github/skills exists in the working directory.
+ * The SDK doesn't auto-discover skill directories, so we need to specify them.
+ */
+function getSkillDirectories(workingDirectory: string): string[] {
+  const skillsDir = path.join(workingDirectory, ".github", "skills");
+
+  if (fs.existsSync(skillsDir)) {
+    console.log(`Found skills directory: ${skillsDir}`);
+    return [skillsDir];
+  }
+
+  return [];
 }
 
 export interface ImplementationProgress {
@@ -35,13 +52,25 @@ export async function fetchTicket(url: string): Promise<WorkItem> {
   return getWorkItem({ organization, project, pat }, workItemId);
 }
 
-export async function generatePlan(ticket: WorkItem): Promise<TicketPlan> {
+export async function generatePlan(
+  ticket: WorkItem,
+  workingDirectory?: string
+): Promise<TicketPlan> {
   console.log("Creating Copilot client...");
   const client = new CopilotClient();
 
+  // Get skill directories if they exist (SDK doesn't auto-discover these)
+  const skillDirectories = workingDirectory
+    ? getSkillDirectories(workingDirectory)
+    : [];
+
   console.log("Creating session...");
+  // The SDK automatically discovers instruction files from .github/instructions/
+  // when workingDirectory is set - no need to manually load them
   const session = await client.createSession({
     model: "gpt-4.1",
+    ...(workingDirectory && { workingDirectory }),
+    ...(skillDirectories.length > 0 && { skillDirectories }),
   });
 
   console.log("Sending prompt...");
@@ -101,13 +130,23 @@ Please provide:
 export async function refinePlan(
   ticket: WorkItem,
   currentPlan: string,
-  feedback: string
+  feedback: string,
+  workingDirectory?: string
 ): Promise<string> {
   console.log("Refining plan with feedback...");
   const client = new CopilotClient();
 
+  // Get skill directories if they exist
+  const skillDirectories = workingDirectory
+    ? getSkillDirectories(workingDirectory)
+    : [];
+
+  // The SDK automatically discovers instruction files from .github/instructions/
+  // when workingDirectory is set
   const session = await client.createSession({
     model: "gpt-4.1",
+    ...(workingDirectory && { workingDirectory }),
+    ...(skillDirectories.length > 0 && { skillDirectories }),
   });
 
   const result = await session.sendAndWait({
@@ -140,13 +179,22 @@ export async function implementTicket(
 ): Promise<void> {
   const client = new CopilotClient();
 
+  // Get skill directories if they exist
+  const skillDirectories = workingDirectory
+    ? getSkillDirectories(workingDirectory)
+    : [];
+
+  if (skillDirectories.length > 0) {
+    console.log(`Using skill directories: ${skillDirectories.join(", ")}`);
+  }
+
+  // The SDK automatically discovers instruction files from .github/instructions/
+  // when workingDirectory is set - no need to manually load them
   const session = await client.createSession({
     model,
-    content: `You are a senior software engineer implementing features based on tickets.
-Implement the requested changes directly in the codebase.
-Follow the provided implementation plan step by step.`,
     streaming: true,
-    workingDirectory,
+    ...(workingDirectory && { workingDirectory }),
+    ...(skillDirectories.length > 0 && { skillDirectories }),
   });
 
   session.on("assistant.message_delta", (event) => {

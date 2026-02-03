@@ -60,7 +60,9 @@ ticketRouter.post("/plan", async (req: Request, res: Response) => {
   }
 
   try {
-    currentPlan = await generatePlan(currentTicket);
+    // Pass working directory if available to load custom instructions
+    const workingDirectory = currentRepo?.localPath;
+    currentPlan = await generatePlan(currentTicket, workingDirectory);
     res.json({
       ticket: currentTicket,
       plan: currentPlan,
@@ -232,10 +234,13 @@ ticketRouter.post("/refine", async (req: Request, res: Response) => {
   }
 
   try {
+    // Pass working directory if available to load custom instructions
+    const workingDirectory = currentRepo?.localPath;
     const refinedPlan = await refinePlan(
       currentTicket,
       currentPlan.implementationPlan,
-      feedback
+      feedback,
+      workingDirectory
     );
     currentPlan = { ...currentPlan, implementationPlan: refinedPlan };
     res.json({ plan: currentPlan });
