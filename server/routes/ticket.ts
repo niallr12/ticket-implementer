@@ -16,7 +16,11 @@ import {
   getDiff,
   useLocalFolder,
   isAzureDevOpsUrl,
+  listSharedInstructions,
+  copyInstructionsToWorkspace,
+  cleanupTemporaryInstructions,
   type CloneResult,
+  type SharedInstructionFile,
 } from "../../utils/azure-devops-git.js";
 
 interface PostTask {
@@ -34,6 +38,7 @@ let currentRepo: CloneResult | null = null;
 let currentRepoUrl: string | null = null;
 let sourceType: "remote" | "local" = "remote";
 let canCreatePr: boolean = false;
+let temporaryInstructionFiles: string[] = [];
 
 ticketRouter.post("/fetch", async (req: Request, res: Response) => {
   const { url } = req.body;
@@ -502,5 +507,74 @@ Please make the requested changes to the code based on the feedback above.
     );
   } finally {
     res.end();
+  }
+});
+
+// List available shared instructions
+ticketRouter.get("/shared-instructions", async (_req: Request, res: Response) => {
+  if (!process.env.SHARED_INSTRUCTIONS_REPO) {
+    res.status(400).json({
+      error: "SHARED_INSTRUCTIONS_REPO environment variable is not set",
+      notConfigured: true,
+    });
+    return;
+  }
+
+  try {
+    const workspacePath = currentRepo?.localPath;
+    const instructions = await listSharedInstructions(workspacePath);
+    res.json({ instructions });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to list shared instructions",
+    });
+  }
+});
+
+// Copy selected instruction files to workspace
+ticketRouter.post("/copy-instructions", async (req: Request, res: Response) => {
+  const { files } = req.body as { files: SharedInstructionFile[] };
+
+  if (!currentRepo) {
+    res.status(400).json({ error: "No repository set up. Clone or use local folder first." });
+    return;
+  }
+
+  if (!files || files.length === 0) {
+    res.status(400).json({ error: "No files specified" });
+    return;
+  }
+
+  try {
+    const result = await copyInstructionsToWorkspace(currentRepo.localPath, files);
+
+    // Track copied files for cleanup
+    temporaryInstructionFiles = [...temporaryInstructionFiles, ...result.copied];
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to copy instructions",
+    });
+  }
+});
+
+// Remove temporary instruction files
+ticketRouter.post("/cleanup-instructions", async (_req: Request, res: Response) => {
+  if (!currentRepo) {
+    // No repo means nothing to clean up
+    res.json({ success: true, cleaned: [] });
+    return;
+  }
+
+  try {
+    cleanupTemporaryInstructions(currentRepo.localPath, temporaryInstructionFiles);
+    const cleaned = [...temporaryInstructionFiles];
+    temporaryInstructionFiles = [];
+
+    res.json({ success: true, cleaned });
+  } catch (error) {
+    // Silent failure - cleanup errors don't block user
+    res.json({ success: true, cleaned: [], error: error instanceof Error ? error.message : "Unknown error" });
   }
 });

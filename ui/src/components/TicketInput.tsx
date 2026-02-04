@@ -1,4 +1,5 @@
 import { useState } from "react";
+import InstructionSelector from "./InstructionSelector";
 
 interface Ticket {
   id: number;
@@ -41,6 +42,8 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [error, setError] = useState("");
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  const [instructionsReady, setInstructionsReady] = useState(false);
+  const [addedInstructions, setAddedInstructions] = useState<string[]>([]);
 
   const handleFetch = async () => {
     if (!ticketUrl.trim()) {
@@ -132,6 +135,11 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
     } finally {
       setSettingUpLocal(false);
     }
+  };
+
+  const handleInstructionsComplete = (instructions: string[]) => {
+    setAddedInstructions(instructions);
+    setInstructionsReady(true);
   };
 
   const handleGeneratePlan = async () => {
@@ -296,6 +304,15 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
             )
           ) : (
             <>
+              {addedInstructions.length > 0 && (
+                <div className="added-instructions">
+                  <span className="added-instructions-label">Instructions:</span>
+                  {addedInstructions.map((name) => (
+                    <span key={name} className="instruction-pill">{name}</span>
+                  ))}
+                </div>
+              )}
+
               <div className="success-banner">
                 <span className="success-icon">✓</span>
                 <div>
@@ -307,13 +324,22 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
                 </div>
               </div>
 
-              <button
-                className="primary"
-                onClick={handleGeneratePlan}
-                disabled={generatingPlan}
-              >
-                {generatingPlan ? "Generating Plan..." : "Generate Implementation Plan"}
-              </button>
+              {!instructionsReady && (
+                <InstructionSelector
+                  onComplete={handleInstructionsComplete}
+                  disabled={generatingPlan}
+                />
+              )}
+
+              {instructionsReady && (
+                <button
+                  className="primary"
+                  onClick={handleGeneratePlan}
+                  disabled={generatingPlan}
+                >
+                  {generatingPlan ? "Generating Plan..." : "Generate Implementation Plan"}
+                </button>
+              )}
             </>
           )}
         </>

@@ -53,7 +53,10 @@ export default function App() {
     setPlan(null);
   };
 
-  const handleComplete = () => {
+  const handleComplete = async () => {
+    // Cleanup temporary instruction files
+    await fetch("/api/ticket/cleanup-instructions", { method: "POST" }).catch(() => {});
+
     setStep("input");
     setTicket(null);
     setPlan(null);

@@ -1064,3 +1064,213 @@ button.small {
   padding-bottom: 0.5rem;
   margin-top: 0.25rem;
 }
+
+/* Instruction Selector */
+.instruction-selector {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+}
+
+.instruction-header {
+  margin-bottom: 0.75rem;
+}
+
+.instruction-header h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.instruction-hint {
+  font-size: 0.85rem;
+  color: var(--gray-500);
+}
+
+.instruction-search {
+  margin-bottom: 0.75rem;
+}
+
+.instruction-search input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--gray-300);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: white;
+}
+
+.instruction-search input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.instruction-search input::placeholder {
+  color: var(--gray-400);
+}
+
+.instruction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.instruction-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.instruction-option:hover:not(.disabled) {
+  border-color: var(--gray-300);
+  background: var(--gray-50);
+}
+
+.instruction-option.selected {
+  border-color: var(--primary);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.instruction-option.disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: var(--gray-100);
+}
+
+.instruction-option input[type="checkbox"] {
+  accent-color: var(--primary);
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.instruction-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.instruction-name {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--gray-800);
+}
+
+.instruction-filename {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: var(--gray-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.instruction-badge {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--gray-200);
+  color: var(--gray-600);
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.instruction-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.instruction-loading,
+.instruction-empty,
+.instruction-not-configured {
+  font-size: 0.875rem;
+  color: var(--gray-500);
+  padding: 1rem;
+  text-align: center;
+  background: white;
+  border: 1px dashed var(--gray-300);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.instruction-error {
+  padding: 1rem;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.instruction-error p {
+  font-size: 0.875rem;
+  color: var(--danger);
+  margin-bottom: 0.75rem;
+}
+
+.instruction-error-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.instruction-result {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.instruction-result .copied-count {
+  color: var(--success);
+}
+
+.instruction-result .skipped-count {
+  color: var(--gray-500);
+}
+
+/* Added Instructions Pills */
+.added-instructions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 8px;
+}
+
+.added-instructions-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--gray-600);
+}
+
+.instruction-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  background: var(--primary);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 9999px;
+}

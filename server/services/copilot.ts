@@ -197,7 +197,9 @@ Description: ${ticket.description}
 Implementation Plan:
 ${plan}
 
-Please implement these changes now. Create or modify files as needed.`,
+Please implement these changes now. Create or modify files as needed.
+
+IMPORTANT: Do NOT commit any changes. Do NOT run git commit. The user will review and commit the changes manually after reviewing the diff.`,
     }, 600000);
   } catch (error) {
     onProgress({

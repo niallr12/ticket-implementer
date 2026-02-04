@@ -1,6 +1,6 @@
 import { execSync } from "child_process";
-import { mkdirSync, existsSync, rmSync } from "fs";
-import { join } from "path";
+import { mkdirSync, existsSync, rmSync, writeFileSync, unlinkSync } from "fs";
+import { join, basename } from "path";
 
 export interface RepoConfig {
   organization: string;
@@ -134,6 +134,16 @@ export async function commitAndPush(
       stdio: "pipe",
     });
 
+    // Unstage temporary instruction files (they shouldn't be committed)
+    try {
+      execSync("git reset HEAD -- .github/instructions/*.instructions.md", {
+        cwd: localPath,
+        stdio: "pipe",
+      });
+    } catch {
+      // Ignore if no instruction files to unstage
+    }
+
     // Check if there are changes to commit
     const status = execSync("git status --porcelain", {
       cwd: localPath,
@@ -173,9 +183,12 @@ export function cleanupWorkspace(localPath: string): void {
 }
 
 export function getDiff(localPath: string): string {
+  // Exclude temporary instruction files from diff
+  const excludePattern = "-- ':!.github/instructions/*.instructions.md'";
+
   try {
     // First check for uncommitted changes
-    let diff = execSync("git diff HEAD", {
+    let diff = execSync(`git diff HEAD ${excludePattern}`, {
       cwd: localPath,
       encoding: "utf-8",
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large diffs
@@ -209,14 +222,14 @@ export function getDiff(localPath: string): string {
           encoding: "utf-8",
         }).trim();
 
-        diff = execSync(`git diff ${mergeBase}..HEAD`, {
+        diff = execSync(`git diff ${mergeBase}..HEAD ${excludePattern}`, {
           cwd: localPath,
           encoding: "utf-8",
           maxBuffer: 10 * 1024 * 1024,
         });
       } catch {
         // If merge-base fails, just show recent commits diff
-        diff = execSync(`git diff HEAD~1..HEAD 2>/dev/null || echo ""`, {
+        diff = execSync(`git diff HEAD~1..HEAD ${excludePattern} 2>/dev/null || echo ""`, {
           cwd: localPath,
           encoding: "utf-8",
           maxBuffer: 10 * 1024 * 1024,
@@ -297,6 +310,13 @@ export interface PullRequestResult {
   title: string;
 }
 
+export interface SharedInstructionFile {
+  filename: string;        // "playwright-dotnet.instructions.md"
+  displayName: string;     // "Playwright Dotnet"
+  path: string;            // "/instructions/playwright-dotnet.instructions.md"
+  existsInWorkspace: boolean;
+}
+
 export async function createPullRequest(
   repoUrl: string,
   sourceBranch: string,
@@ -342,4 +362,167 @@ export async function createPullRequest(
     url: prWebUrl,
     title: data.title,
   };
+}
+
+/**
+ * Format filename to display name: "playwright-dotnet.instructions.md" → "Playwright Dotnet"
+ */
+export function formatInstructionDisplayName(filename: string): string {
+  return filename
+    .replace(/\.instructions\.md$/, "")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+/**
+ * List instruction files from shared repo (uses Azure DevOps Items API)
+ */
+export async function listSharedInstructions(workspacePath?: string): Promise<SharedInstructionFile[]> {
+  const sharedRepoUrl = process.env.SHARED_INSTRUCTIONS_REPO;
+  if (!sharedRepoUrl) {
+    throw new Error("SHARED_INSTRUCTIONS_REPO environment variable is not set");
+  }
+
+  const pat = process.env.ADO_PAT;
+  if (!pat) {
+    throw new Error("ADO_PAT environment variable is not set");
+  }
+
+  const { organization, project, repoName } = parseAzureDevOpsRepoUrl(sharedRepoUrl);
+
+  // List folder contents from Azure DevOps Items API
+  const apiUrl = `https://dev.azure.com/${organization}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repoName)}/items?scopePath=/instructions&recursionLevel=OneLevel&api-version=7.0`;
+
+  const response = await fetch(apiUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to list instructions: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  const items = data.value || [];
+
+  // Filter for .instructions.md files only
+  const instructionFiles: SharedInstructionFile[] = items
+    .filter((item: { path: string; isFolder?: boolean }) =>
+      !item.isFolder && item.path.endsWith(".instructions.md")
+    )
+    .map((item: { path: string }) => {
+      const filename = basename(item.path);
+      const displayName = formatInstructionDisplayName(filename);
+
+      // Check if file already exists in workspace
+      let existsInWorkspace = false;
+      if (workspacePath) {
+        const workspaceFilePath = join(workspacePath, ".github", "instructions", filename);
+        existsInWorkspace = existsSync(workspaceFilePath);
+      }
+
+      return {
+        filename,
+        displayName,
+        path: item.path,
+        existsInWorkspace,
+      };
+    });
+
+  return instructionFiles;
+}
+
+/**
+ * Fetch content of a single instruction file
+ */
+export async function fetchInstructionFileContent(filePath: string): Promise<string> {
+  const sharedRepoUrl = process.env.SHARED_INSTRUCTIONS_REPO;
+  if (!sharedRepoUrl) {
+    throw new Error("SHARED_INSTRUCTIONS_REPO environment variable is not set");
+  }
+
+  const pat = process.env.ADO_PAT;
+  if (!pat) {
+    throw new Error("ADO_PAT environment variable is not set");
+  }
+
+  const { organization, project, repoName } = parseAzureDevOpsRepoUrl(sharedRepoUrl);
+
+  // Fetch file content from Azure DevOps Items API
+  const apiUrl = `https://dev.azure.com/${organization}/${encodeURIComponent(project)}/_apis/git/repositories/${encodeURIComponent(repoName)}/items?path=${encodeURIComponent(filePath)}&api-version=7.0`;
+
+  const response = await fetch(apiUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${pat}`).toString("base64")}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch instruction file: ${response.status} ${errorText}`);
+  }
+
+  return await response.text();
+}
+
+/**
+ * Copy selected instruction files to workspace, skip existing
+ */
+export async function copyInstructionsToWorkspace(
+  workspacePath: string,
+  files: SharedInstructionFile[]
+): Promise<{ copied: string[]; skipped: string[] }> {
+  const instructionsDir = join(workspacePath, ".github", "instructions");
+
+  // Ensure .github/instructions directory exists
+  if (!existsSync(instructionsDir)) {
+    mkdirSync(instructionsDir, { recursive: true });
+  }
+
+  const copied: string[] = [];
+  const skipped: string[] = [];
+
+  for (const file of files) {
+    const targetPath = join(instructionsDir, file.filename);
+
+    // Skip if file already exists
+    if (existsSync(targetPath)) {
+      skipped.push(file.filename);
+      continue;
+    }
+
+    try {
+      const content = await fetchInstructionFileContent(file.path);
+      writeFileSync(targetPath, content, "utf-8");
+      copied.push(file.filename);
+    } catch (error) {
+      console.error(`Failed to copy ${file.filename}: ${error instanceof Error ? error.message : "Unknown error"}`);
+      skipped.push(file.filename);
+    }
+  }
+
+  return { copied, skipped };
+}
+
+/**
+ * Remove temporary instruction files
+ */
+export function cleanupTemporaryInstructions(workspacePath: string, files: string[]): void {
+  const instructionsDir = join(workspacePath, ".github", "instructions");
+
+  for (const filename of files) {
+    const filePath = join(instructionsDir, filename);
+    try {
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+      }
+    } catch (error) {
+      // Silent failure - cleanup errors don't block user
+      console.error(`Failed to cleanup ${filename}: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
 }

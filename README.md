@@ -187,7 +187,8 @@ Features:
 │   │   ├── components/       # React components
 │   │   │   ├── TicketInput.tsx
 │   │   │   ├── PlanReview.tsx
-│   │   │   └── Implementation.tsx
+│   │   │   ├── Implementation.tsx
+│   │   │   └── InstructionSelector.tsx
 │   │   └── main.tsx
 │   ├── package.json
 │   └── vite.config.ts
@@ -218,12 +219,16 @@ Features:
 | `/api/ticket/create-pr` | POST | Create pull request in Azure DevOps |
 | `/api/ticket/current` | GET | Get current ticket and plan state |
 | `/api/ticket/repo-info` | GET | Get current repository information |
+| `/api/ticket/shared-instructions` | GET | List available shared instructions |
+| `/api/ticket/copy-instructions` | POST | Copy selected instructions to workspace |
+| `/api/ticket/cleanup-instructions` | POST | Remove temporary instruction files |
 
 ## Environment Variables
 
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `ADO_PAT` | Azure DevOps Personal Access Token | Only for Azure DevOps features |
+| `SHARED_INSTRUCTIONS_REPO` | URL to shared instructions repository | No |
 | `PORT` | Server port (default: 3001) | No |
 
 ## Custom Instructions & Skills
@@ -267,6 +272,48 @@ Instructions are automatically applied when the working directory is set during:
 - Implementation
 
 For detailed documentation on custom instructions, skills, and MCP servers, see [docs/COPILOT-SDK-CUSTOMIZATION.md](docs/COPILOT-SDK-CUSTOMIZATION.md).
+
+### Shared Instructions Library
+
+You can configure a central Azure DevOps repository to share instruction files across projects. This allows teams to maintain a library of reusable coding standards, best practices, and project-specific guidelines.
+
+#### Setup
+
+1. Create a repository in Azure DevOps to store shared instructions
+2. Create an `/instructions` folder in the repository root
+3. Add instruction files with the `.instructions.md` extension
+4. Set the `SHARED_INSTRUCTIONS_REPO` environment variable:
+
+```bash
+SHARED_INSTRUCTIONS_REPO=https://dev.azure.com/your-org/your-project/_git/shared-instructions
+```
+
+#### Repository Structure
+
+```
+shared-instructions/
+└── instructions/
+    ├── reactjs.instructions.md
+    ├── typescript.instructions.md
+    ├── testing-best-practices.instructions.md
+    └── security-guidelines.instructions.md
+```
+
+#### How It Works
+
+1. After cloning/selecting a repository, you'll see a "Shared Instructions" selector
+2. Browse and search available instructions from your central repository
+3. Select the instructions relevant to your current task
+4. Selected instructions are temporarily copied to the workspace's `.github/instructions/` folder
+5. The AI uses these instructions when generating plans and implementing code
+6. Instructions are automatically cleaned up when you click "Done"
+
+#### Key Features
+
+- **Search & Filter**: Quickly find instructions by name or filename
+- **Conflict Detection**: Instructions already in the workspace are marked and skipped
+- **Non-Destructive**: Temporary files don't appear in git diff or get committed
+- **Visual Indicators**: Selected instructions appear as pills for easy reference
 
 ---
 
