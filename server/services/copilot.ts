@@ -57,17 +57,21 @@ export async function generatePlan(
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
   });
+  const figmaContext = ticket.figmaUrl
+    ? `\nFigma Design: ${ticket.figmaUrl}\n\nIMPORTANT: This ticket includes a Figma design. Use the Figma MCP tools to fetch and analyze the design. The implementation should match the design specifications including layout, colors, typography, and component structure.`
+    : "";
+
   const result = await session.sendAndWait({
     prompt: `You are a senior software engineer. Analyze this ticket and create an implementation plan.
 
 Ticket Title: ${ticket.title}
 Ticket Type: ${ticket.type}
 Ticket State: ${ticket.state}
-Ticket Description: ${ticket.description}
+Ticket Description: ${ticket.description}${figmaContext}
 
 Please provide:
 1. A brief summary of what the ticket is asking for
-2. A numbered implementation plan with specific steps`,
+2. A numbered implementation plan with specific steps${ticket.figmaUrl ? "\n3. Include specific design details from the Figma file in your plan" : ""}`,
   });
 
   await session.destroy();
@@ -127,11 +131,15 @@ export async function refinePlan(
     ...(skillDirectories.length > 0 && { skillDirectories }),
   });
 
+  const figmaRefineContext = ticket.figmaUrl
+    ? `\nFigma Design: ${ticket.figmaUrl}`
+    : "";
+
   const result = await session.sendAndWait({
     prompt: `You are a senior software engineer. Refine this implementation plan based on the feedback.
 
 Ticket Title: ${ticket.title}
-Ticket Description: ${ticket.description}
+Ticket Description: ${ticket.description}${figmaRefineContext}
 
 Current Implementation Plan:
 ${currentPlan}
@@ -188,11 +196,15 @@ export async function implementTicket(
 
   try {
     // Use 10 minute timeout for complex implementations
+    const figmaImplementContext = ticket.figmaUrl
+      ? `\nFigma Design: ${ticket.figmaUrl}\n\nIMPORTANT: Use the Figma MCP tools to fetch design details. Match the design exactly - colors, spacing, typography, and layout. Extract design tokens and component specifications from the Figma file.`
+      : "";
+
     await session.sendAndWait({
       prompt: `Implement this ticket:
 
 Title: ${ticket.title}
-Description: ${ticket.description}
+Description: ${ticket.description}${figmaImplementContext}
 
 Implementation Plan:
 ${plan}

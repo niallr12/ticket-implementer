@@ -1274,3 +1274,35 @@ button.small {
   font-weight: 500;
   border-radius: 9999px;
 }
+
+/* Figma Link */
+.figma-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, rgba(162, 89, 255, 0.1) 0%, rgba(26, 188, 254, 0.1) 100%);
+  border: 1px solid rgba(162, 89, 255, 0.3);
+  border-radius: 8px;
+}
+
+.figma-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.figma-link a {
+  color: #a259ff;
+  font-weight: 500;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.figma-link a:hover {
+  color: #1abcfe;
+  text-decoration: underline;
+}

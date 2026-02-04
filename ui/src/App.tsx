@@ -13,6 +13,7 @@ interface Ticket {
   state: string;
   assignedTo?: string;
   url: string;
+  figmaUrl?: string;
 }
 
 interface Plan {

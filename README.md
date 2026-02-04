@@ -315,6 +315,54 @@ shared-instructions/
 - **Non-Destructive**: Temporary files don't appear in git diff or get committed
 - **Visual Indicators**: Selected instructions appear as pills for easy reference
 
+### Figma Integration
+
+The application automatically detects Figma links in ticket descriptions and integrates with Figma MCP for design-driven implementation.
+
+#### How It Works
+
+1. When you fetch an Azure DevOps ticket, the application scans the description for Figma URLs
+2. If a Figma link is found, it's displayed prominently in the ticket details
+3. The Figma URL is automatically included in the AI prompts for:
+   - Plan generation (AI analyzes the design)
+   - Plan refinement
+   - Implementation (AI uses Figma MCP to extract design details)
+
+#### Supported Figma URL Formats
+
+- `https://www.figma.com/file/...`
+- `https://www.figma.com/design/...`
+- `https://www.figma.com/proto/...`
+- `https://figma.com/file/...` (without www)
+
+#### Setting Up Figma MCP
+
+To enable full Figma integration, configure the Figma MCP server:
+
+1. Install the Figma MCP server (refer to Figma MCP documentation)
+2. Configure your Figma access token
+3. Add the MCP server to your Copilot configuration
+
+Once configured, the AI will be able to:
+- Fetch design specifications from Figma files
+- Extract colors, typography, and spacing
+- Understand component hierarchies
+- Implement designs that match the Figma specifications exactly
+
+#### Adding Figma Links to Tickets
+
+Include Figma links anywhere in your Azure DevOps ticket description:
+
+```
+Implement the new dashboard widget as shown in the design:
+https://www.figma.com/design/abc123/Dashboard-Redesign
+
+Requirements:
+- Match the layout exactly
+- Use the specified color palette
+- Implement responsive breakpoints
+```
+
 ---
 
 ## How It Works
