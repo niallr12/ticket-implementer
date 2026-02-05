@@ -13,6 +13,22 @@ function getSkillDirectories(workingDirectory: string): string[] {
   return fs.existsSync(skillsDir) ? [skillsDir] : [];
 }
 
+// Figma MCP server configuration for design-driven implementation
+const FIGMA_MCP_SERVER = {
+  type: "http" as const,
+  url: "https://mcp.figma.com/mcp",
+  tools: ['*']
+};
+
+function getMcpServers(includeFigma: boolean) {
+  const mcpServers  = {};
+  if (includeFigma) {
+    mcpServers['figma-mcp-server']: FIGMA_MCP_SERVER
+  }
+
+  return mcpServers;
+}
+
 export interface ImplementationProgress {
   type: "message" | "tool_start" | "tool_end" | "complete" | "error";
   content: string;
@@ -54,11 +70,14 @@ export async function generatePlan(
     ? getSkillDirectories(workingDirectory)
     : [];
 
+  const mcpServers = getMcpServers(!!ticket.figmaUrl);
+
   const session = await client.createSession({
     model,
     streaming: true, // Enable streaming for tool use
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
+    ...(mcpServers && { mcpServers }),
   });
 
   // Track progress for UI feedback
@@ -187,11 +206,13 @@ export async function discussImplementation(
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
+  const mcpServers = getMcpServers(!!ticket.figmaUrl);
 
   const session = await client.createSession({
     model: "gpt-4.1",
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
+    ...(mcpServers && { mcpServers }),
   });
 
   // Build conversation context
@@ -247,11 +268,13 @@ export async function discussPlan(
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
+  const mcpServers = getMcpServers(!!ticket.figmaUrl);
 
   const session = await client.createSession({
     model: "gpt-4.1",
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
+    ...(mcpServers && { mcpServers }),
   });
 
   // Build conversation context
@@ -296,11 +319,13 @@ export async function refinePlan(
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
+  const mcpServers = getMcpServers(!!ticket.figmaUrl);
 
   const session = await client.createSession({
     model: "gpt-4.1",
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
+    ...(mcpServers && { mcpServers }),
   });
 
   const figmaRefineContext = ticket.figmaUrl
@@ -340,12 +365,14 @@ export async function implementTicket(
   const skillDirectories = workingDirectory
     ? getSkillDirectories(workingDirectory)
     : [];
+  const mcpServers = getMcpServers(!!ticket.figmaUrl);
 
   const session = await client.createSession({
     model,
     streaming: true,
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
+    ...(mcpServers && { mcpServers }),
   });
 
   session.on("assistant.message_delta", (event) => {
@@ -359,10 +386,10 @@ export async function implementTicket(
     });
   });
 
-  session.on("tool.execution_end", (event) => {
+  session.on("tool.execution_complete", (event) => {
     onProgress({
       type: "tool_end",
-      content: `Completed: ${event.data.toolName}`,
+      content: `Completed: ${event.data.result?.content}`,
     });
   });
 

@@ -64,7 +64,7 @@ ticketRouter.post("/fetch", async (req: Request, res: Response) => {
 });
 
 ticketRouter.post("/plan", async (req: Request, res: Response) => {
-  const { stream, model } = req.body;
+  const { stream, model, figmaUrl } = req.body;
   const selectedModel = model || "gpt-4.1";
 
   if (!currentTicket) {
@@ -73,6 +73,12 @@ ticketRouter.post("/plan", async (req: Request, res: Response) => {
   }
 
   const workingDirectory = currentRepo?.localPath;
+
+  // Use figmaUrl from request if provided, otherwise use ticket's figmaUrl
+  const ticketWithFigma = {
+    ...currentTicket,
+    figmaUrl: figmaUrl || currentTicket.figmaUrl,
+  };
 
   // If streaming is requested, use SSE
   if (stream) {
@@ -83,7 +89,7 @@ ticketRouter.post("/plan", async (req: Request, res: Response) => {
     try {
       res.write(`data: ${JSON.stringify({ type: "progress", content: `Using model: ${selectedModel}` })}\n\n`);
 
-      currentPlan = await generatePlan(currentTicket, workingDirectory, (progress) => {
+      currentPlan = await generatePlan(ticketWithFigma, workingDirectory, (progress) => {
         res.write(`data: ${JSON.stringify({ type: "progress", content: progress })}\n\n`);
       }, selectedModel);
 
@@ -101,7 +107,7 @@ ticketRouter.post("/plan", async (req: Request, res: Response) => {
 
   // Non-streaming fallback
   try {
-    currentPlan = await generatePlan(currentTicket, workingDirectory, undefined, selectedModel);
+    currentPlan = await generatePlan(ticketWithFigma, workingDirectory, undefined, selectedModel);
     // Clear discussion history when new plan is generated
     discussionHistory = [];
     res.json({

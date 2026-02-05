@@ -343,14 +343,16 @@ The application automatically detects Figma links in ticket descriptions and int
 
 #### Setting Up Figma MCP
 
-To enable full Figma integration, configure the Figma MCP server:
+The application automatically connects to Figma's remote MCP server (`https://mcp.figma.com/mcp`) when a Figma URL is detected. To use it:
 
-1. Install the Figma MCP server (refer to Figma MCP documentation)
-2. Configure your Figma access token
-3. Add the MCP server to your Copilot configuration
+1. **First-time setup**: When the AI attempts to access Figma, you'll be prompted to authenticate via OAuth in your browser
+2. **Authorize access**: Log in to your Figma account and authorize the MCP server to access your designs
+3. **Done**: Once authenticated, the AI can access your private Figma files
 
-Once configured, the AI will be able to:
-- Fetch design specifications from Figma files
+The OAuth authentication is handled by Figma's MCP server - no API keys or tokens need to be configured manually.
+
+Once authenticated, the AI will be able to:
+- Fetch design specifications from Figma files (including private designs)
 - Extract colors, typography, and spacing
 - Understand component hierarchies
 - Implement designs that match the Figma specifications exactly

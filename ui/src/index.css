@@ -1275,16 +1275,23 @@ button.small {
   border-radius: 9999px;
 }
 
-/* Figma Link */
-.figma-link {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+/* Figma Input Section */
+.figma-input-section {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
   background: linear-gradient(135deg, rgba(162, 89, 255, 0.1) 0%, rgba(26, 188, 254, 0.1) 100%);
   border: 1px solid rgba(162, 89, 255, 0.3);
   border-radius: 8px;
+}
+
+.figma-input-section > label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #a259ff;
+  margin-bottom: 0.5rem;
 }
 
 .figma-icon {
@@ -1294,17 +1301,40 @@ button.small {
   flex-shrink: 0;
 }
 
-.figma-link a {
-  color: #a259ff;
-  font-weight: 500;
-  font-size: 0.9rem;
-  text-decoration: none;
-  transition: color 0.2s;
+.figma-input-group {
+  display: flex;
+  gap: 0.5rem;
 }
 
-.figma-link a:hover {
-  color: #1abcfe;
-  text-decoration: underline;
+.figma-input-group input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(162, 89, 255, 0.3);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  background: white;
+}
+
+.figma-input-group input:focus {
+  outline: none;
+  border-color: #a259ff;
+  box-shadow: 0 0 0 3px rgba(162, 89, 255, 0.1);
+}
+
+.figma-open-button {
+  padding: 0.5rem 0.75rem;
+  background: #a259ff;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.figma-open-button:hover {
+  background: #8b3de8;
 }
 
 /* Discuss Plan Section */
