@@ -40,6 +40,11 @@ interface PostTask {
   command: string;
 }
 
+interface DiscussionMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 interface Props {
   onComplete: () => void;
   model: string;
@@ -63,6 +68,10 @@ export default function Implementation({ onComplete, model, postTasks, canCreate
   const [isRefining, setIsRefining] = useState(false);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const hasStarted = useRef(false);
+  const [discussionMessages, setDiscussionMessages] = useState<DiscussionMessage[]>([]);
+  const [discussionQuestion, setDiscussionQuestion] = useState("");
+  const [isDiscussing, setIsDiscussing] = useState(false);
+  const [showDiscussion, setShowDiscussion] = useState(false);
 
   // Parse diff into individual files (simple parser)
   const parsedFiles = useMemo(() => {
@@ -280,6 +289,44 @@ export default function Implementation({ onComplete, model, postTasks, canCreate
     }
   };
 
+  const handleDiscussImplementation = async () => {
+    if (!discussionQuestion.trim()) {
+      return;
+    }
+
+    setIsDiscussing(true);
+
+    try {
+      const response = await fetch("/api/ticket/discuss-implementation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: discussionQuestion, diff: diff || "" }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to get response");
+      }
+
+      setDiscussionMessages(data.history);
+      setDiscussionQuestion("");
+    } catch (err) {
+      console.error("Discussion error:", err);
+    } finally {
+      setIsDiscussing(false);
+    }
+  };
+
+  const handleClearDiscussion = async () => {
+    try {
+      await fetch("/api/ticket/clear-implementation-discussion", { method: "POST" });
+      setDiscussionMessages([]);
+    } catch {
+      // Ignore errors
+    }
+  };
+
   const getLineClass = (type: ProgressLine["type"]) => {
     switch (type) {
       case "tool_start":
@@ -368,6 +415,68 @@ export default function Implementation({ onComplete, model, postTasks, canCreate
                   );
                 })}
               </pre>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Discuss Implementation section - show after implementation complete */}
+      {isComplete && !changesPushed && diff && diff !== "(No changes detected)" && (
+        <div className="discuss-section">
+          <div className="discuss-header">
+            <h4>Discuss Implementation</h4>
+            <button
+              className="discuss-toggle"
+              onClick={() => setShowDiscussion(!showDiscussion)}
+            >
+              {showDiscussion ? "Hide" : "Show"} Discussion
+            </button>
+          </div>
+
+          {showDiscussion && (
+            <>
+              <p className="discuss-hint">
+                Ask questions about the code changes - why certain patterns were used, what specific code does, or explore alternatives.
+              </p>
+
+              {discussionMessages.length > 0 && (
+                <div className="discussion-messages">
+                  {discussionMessages.map((msg, index) => (
+                    <div key={index} className={`discussion-message ${msg.role}`}>
+                      <span className="message-role">{msg.role === "user" ? "You" : "AI"}</span>
+                      <div className="message-content">{msg.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="discuss-input-group">
+                <input
+                  type="text"
+                  className="discuss-input"
+                  value={discussionQuestion}
+                  onChange={(e) => setDiscussionQuestion(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !isDiscussing && handleDiscussImplementation()}
+                  placeholder="e.g., Why did you use this pattern here? What does this function do?"
+                  disabled={isDiscussing}
+                />
+                <button
+                  className="discuss-button"
+                  onClick={handleDiscussImplementation}
+                  disabled={isDiscussing || !discussionQuestion.trim()}
+                >
+                  {isDiscussing ? "..." : "Ask"}
+                </button>
+              </div>
+
+              {discussionMessages.length > 0 && (
+                <button
+                  className="clear-discussion"
+                  onClick={handleClearDiscussion}
+                >
+                  Clear Discussion
+                </button>
+              )}
             </>
           )}
         </div>

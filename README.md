@@ -222,6 +222,12 @@ Features:
 | `/api/ticket/shared-instructions` | GET | List available shared instructions |
 | `/api/ticket/copy-instructions` | POST | Copy selected instructions to workspace |
 | `/api/ticket/cleanup-instructions` | POST | Remove temporary instruction files |
+| `/api/ticket/discuss` | POST | Discuss the plan with AI (Q&A) |
+| `/api/ticket/discussion-history` | GET | Get current discussion history |
+| `/api/ticket/clear-discussion` | POST | Clear discussion history |
+| `/api/ticket/discuss-implementation` | POST | Discuss implementation code with AI |
+| `/api/ticket/implementation-discussion-history` | GET | Get implementation discussion history |
+| `/api/ticket/clear-implementation-discussion` | POST | Clear implementation discussion |
 
 ## Environment Variables
 

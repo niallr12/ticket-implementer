@@ -1,6 +1,13 @@
 import { useState } from "react";
 import InstructionSelector from "./InstructionSelector";
 
+const PLAN_MODELS = [
+  { id: "gpt-4.1", name: "GPT-4.1", description: "Fast, good for most tasks" },
+  { id: "claude-sonnet-4.5", name: "Claude 4.5 Sonnet", description: "Balanced speed & quality" },
+  { id: "claude-opus-4.5", name: "Claude 4.5 Opus", description: "Most thorough analysis" },
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Google's advanced model" },
+];
+
 interface Ticket {
   id: number;
   title: string;
@@ -45,6 +52,8 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
   const [instructionsReady, setInstructionsReady] = useState(false);
   const [addedInstructions, setAddedInstructions] = useState<string[]>([]);
+  const [explorationProgress, setExplorationProgress] = useState<string[]>([]);
+  const [planModel, setPlanModel] = useState("gpt-4.1");
 
   const handleFetch = async () => {
     if (!ticketUrl.trim()) {
@@ -151,24 +160,54 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
 
     setGeneratingPlan(true);
     setError("");
+    setExplorationProgress([]);
 
     try {
       const response = await fetch("/api/ticket/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stream: true, model: planModel }),
       });
 
-      const data = await response.json();
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate plan");
+      if (!reader) {
+        throw new Error("Failed to read response");
       }
 
-      onPlanGenerated(data.plan);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text = decoder.decode(value);
+        const lines = text.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === "progress") {
+                setExplorationProgress((prev) => [...prev.slice(-4), data.content]);
+              } else if (data.type === "complete") {
+                onPlanGenerated(data.plan);
+              } else if (data.type === "error") {
+                throw new Error(data.content);
+              }
+            } catch (parseErr) {
+              // Ignore parse errors for incomplete chunks
+              if (parseErr instanceof SyntaxError) continue;
+              throw parseErr;
+            }
+          }
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to generate plan");
     } finally {
       setGeneratingPlan(false);
+      setExplorationProgress([]);
     }
   };
 
@@ -349,13 +388,51 @@ export default function TicketInput({ onTicketFetched, onPlanGenerated, onRepoRe
               )}
 
               {instructionsReady && (
-                <button
-                  className="primary"
-                  onClick={handleGeneratePlan}
-                  disabled={generatingPlan}
-                >
-                  {generatingPlan ? "Generating Plan..." : "Generate Implementation Plan"}
-                </button>
+                <>
+                  <div className="plan-model-selector">
+                    <label>Model for Plan Generation</label>
+                    <div className="plan-model-options">
+                      {PLAN_MODELS.map((model) => (
+                        <label
+                          key={model.id}
+                          className={`plan-model-option ${planModel === model.id ? "selected" : ""}`}
+                        >
+                          <input
+                            type="radio"
+                            name="plan-model"
+                            value={model.id}
+                            checked={planModel === model.id}
+                            onChange={(e) => setPlanModel(e.target.value)}
+                            disabled={generatingPlan}
+                          />
+                          <div className="plan-model-info">
+                            <span className="plan-model-name">{model.name}</span>
+                            <span className="plan-model-desc">{model.description}</span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    className="primary"
+                    onClick={handleGeneratePlan}
+                    disabled={generatingPlan}
+                  >
+                    {generatingPlan ? "Analyzing Codebase..." : "Generate Implementation Plan"}
+                  </button>
+
+                  {generatingPlan && explorationProgress.length > 0 && (
+                    <div className="exploration-progress">
+                      {explorationProgress.map((msg, i) => (
+                        <div key={i} className="exploration-item">
+                          <span className="exploration-icon">🔍</span>
+                          {msg}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

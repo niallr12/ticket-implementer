@@ -44,7 +44,9 @@ export async function fetchTicket(url: string): Promise<WorkItem> {
 
 export async function generatePlan(
   ticket: WorkItem,
-  workingDirectory?: string
+  workingDirectory?: string,
+  onProgress?: (message: string) => void,
+  model: string = "gpt-4.1"
 ): Promise<TicketPlan> {
   const clientOptions = workingDirectory ? { cwd: workingDirectory } : {};
   const client = new CopilotClient(clientOptions);
@@ -53,33 +55,87 @@ export async function generatePlan(
     : [];
 
   const session = await client.createSession({
-    model: "gpt-4.1",
+    model,
+    streaming: true, // Enable streaming for tool use
     ...(workingDirectory && { workingDirectory }),
     ...(skillDirectories.length > 0 && { skillDirectories }),
   });
+
+  // Track progress for UI feedback
+  let fullResponse = "";
+
+  session.on("assistant.message_delta", (event) => {
+    fullResponse += event.data.deltaContent;
+  });
+
+  session.on("tool.execution_start", (event) => {
+    onProgress?.(`Exploring: ${event.data.toolName}`);
+  });
+
   const figmaContext = ticket.figmaUrl
     ? `\nFigma Design: ${ticket.figmaUrl}\n\nIMPORTANT: This ticket includes a Figma design. Use the Figma MCP tools to fetch and analyze the design. The implementation should match the design specifications including layout, colors, typography, and component structure.`
     : "";
 
-  const result = await session.sendAndWait({
-    prompt: `You are a senior software engineer. Analyze this ticket and create an implementation plan.
+  const codebaseExplorationPrompt = workingDirectory
+    ? `
+IMPORTANT: Before creating the implementation plan, you MUST explore the codebase to understand its structure. Do the following SILENTLY (do not narrate your exploration):
 
-Ticket Title: ${ticket.title}
+1. First, check for documentation files that explain the codebase:
+   - Look for AGENTS.md, CLAUDE.md, README.md, CONTRIBUTING.md in the root directory
+   - These files often contain important context about architecture, conventions, and guidelines
+
+2. Explore the directory structure to understand the project layout:
+   - List the root directory to see the main folders and files
+   - Identify the main source directories (src/, lib/, app/, etc.)
+
+3. Look at existing code patterns:
+   - Find files related to what the ticket is asking for
+   - Understand existing patterns, naming conventions, and code style
+
+4. Only AFTER exploring the codebase, output your response in the EXACT format specified below.
+
+`
+    : "";
+
+  await session.sendAndWait({
+    prompt: `You are a senior software engineer. Your task is to analyze a ticket and create a detailed implementation plan.
+
+${codebaseExplorationPrompt}Ticket Title: ${ticket.title}
 Ticket Type: ${ticket.type}
 Ticket State: ${ticket.state}
 Ticket Description: ${ticket.description}${figmaContext}
 
-Please provide:
-1. A brief summary of what the ticket is asking for
-2. A numbered implementation plan with specific steps${ticket.figmaUrl ? "\n3. Include specific design details from the Figma file in your plan" : ""}`,
-  });
+IMPORTANT OUTPUT FORMAT:
+- Do NOT narrate your exploration process
+- Do NOT say things like "I'll explore..." or "Let me check..."
+- ONLY output the final result in this exact format:
+
+## Summary
+[2-3 sentences describing what the ticket is asking for]
+
+## Implementation Plan
+[Numbered list of specific implementation steps]
+
+Your plan should be specific to THIS codebase, referencing actual file paths, existing patterns, and conventions you discovered during exploration.${ticket.figmaUrl ? " Include specific design details from the Figma file." : ""}`,
+  }, 300000); // 5 minute timeout for exploration
 
   await session.destroy();
   await client.stop();
 
-  const response = result?.data?.content || "";
+  const response = fullResponse;
 
-  // Clean up markdown artifacts
+  // Try to parse structured format with ## headers
+  const summaryMatch = response.match(/##\s*Summary\s*\n([\s\S]*?)(?=##\s*Implementation Plan|$)/i);
+  const planMatch = response.match(/##\s*Implementation Plan\s*\n([\s\S]*?)$/i);
+
+  if (summaryMatch && planMatch) {
+    return {
+      summary: summaryMatch[1].trim(),
+      implementationPlan: planMatch[1].trim(),
+    };
+  }
+
+  // Fallback: Clean up markdown artifacts
   const cleanMarkdown = (text: string) => {
     return text
       .replace(/\*\*[^*]*\*\*:?\s*/gi, "") // Remove **text** patterns
@@ -89,7 +145,7 @@ Please provide:
       .trim();
   };
 
-  // Simple split on "Implementation Plan" or similar
+  // Fallback: Simple split on "Implementation Plan" or similar
   const lowerResponse = response.toLowerCase();
   const planIndex = lowerResponse.indexOf("implementation plan");
 
@@ -101,7 +157,7 @@ Please provide:
       summary: cleanMarkdown(rawSummary),
       implementationPlan: rawPlan
         .replace(/\*\*implementation plan\*\*:?/gi, "")
-        .replace(/^implementation plan:?\s*/i, "")
+        .replace(/^#+\s*implementation plan:?\s*/i, "")
         .trim(),
     };
   }
@@ -110,6 +166,122 @@ Please provide:
     summary: cleanMarkdown(response),
     implementationPlan: "",
   };
+}
+
+export interface DiscussionMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export async function discussImplementation(
+  ticket: WorkItem,
+  plan: string,
+  diff: string,
+  question: string,
+  conversationHistory: DiscussionMessage[],
+  workingDirectory?: string
+): Promise<string> {
+  const client = new CopilotClient({
+    ...(workingDirectory && { cwd: workingDirectory }),
+  });
+  const skillDirectories = workingDirectory
+    ? getSkillDirectories(workingDirectory)
+    : [];
+
+  const session = await client.createSession({
+    model: "gpt-4.1",
+    ...(workingDirectory && { workingDirectory }),
+    ...(skillDirectories.length > 0 && { skillDirectories }),
+  });
+
+  // Build conversation context
+  const historyContext = conversationHistory.length > 0
+    ? `\n\nPrevious discussion:\n${conversationHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n")}`
+    : "";
+
+  const figmaContext = ticket.figmaUrl
+    ? `\nFigma Design: ${ticket.figmaUrl}`
+    : "";
+
+  // Truncate diff if too long
+  const truncatedDiff = diff.length > 10000
+    ? diff.substring(0, 10000) + "\n... (diff truncated for brevity)"
+    : diff;
+
+  const result = await session.sendAndWait({
+    prompt: `You are a senior software engineer helping to discuss code changes that were just implemented. Answer questions about the implementation, explain code decisions, and help the user understand the changes. Be conversational and helpful.
+
+Ticket Title: ${ticket.title}
+Ticket Description: ${ticket.description}${figmaContext}
+
+Implementation Plan that was followed:
+${plan}
+
+Code Changes (Git Diff):
+\`\`\`diff
+${truncatedDiff}
+\`\`\`
+${historyContext}
+
+User's question: ${question}
+
+Provide a helpful response about the implementation. Explain code decisions, patterns used, or any aspects of the changes. If the user suggests improvements, acknowledge them and explain how they could be applied, but note that actual changes would need to be made through the "Request Changes" feature. Keep your response concise and focused.`,
+  });
+
+  await session.destroy();
+  await client.stop();
+
+  return result?.data?.content || "I couldn't generate a response. Please try again.";
+}
+
+export async function discussPlan(
+  ticket: WorkItem,
+  currentPlan: string,
+  question: string,
+  conversationHistory: DiscussionMessage[],
+  workingDirectory?: string
+): Promise<string> {
+  const client = new CopilotClient({
+    ...(workingDirectory && { cwd: workingDirectory }),
+  });
+  const skillDirectories = workingDirectory
+    ? getSkillDirectories(workingDirectory)
+    : [];
+
+  const session = await client.createSession({
+    model: "gpt-4.1",
+    ...(workingDirectory && { workingDirectory }),
+    ...(skillDirectories.length > 0 && { skillDirectories }),
+  });
+
+  // Build conversation context
+  const historyContext = conversationHistory.length > 0
+    ? `\n\nPrevious discussion:\n${conversationHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n")}`
+    : "";
+
+  const figmaContext = ticket.figmaUrl
+    ? `\nFigma Design: ${ticket.figmaUrl}`
+    : "";
+
+  const result = await session.sendAndWait({
+    prompt: `You are a senior software engineer helping to discuss an implementation plan. Answer questions, explain decisions, and provide context about the plan. Be conversational and helpful.
+
+Ticket Title: ${ticket.title}
+Ticket Description: ${ticket.description}${figmaContext}
+
+Current Implementation Plan:
+${currentPlan}
+${historyContext}
+
+User's question: ${question}
+
+Provide a helpful response. If the user's question suggests the plan should be changed, you can mention that, but don't modify the plan directly - just discuss it. Keep your response concise and focused.`,
+  });
+
+  await session.destroy();
+  await client.stop();
+
+  return result?.data?.content || "I couldn't generate a response. Please try again.";
 }
 
 export async function refinePlan(

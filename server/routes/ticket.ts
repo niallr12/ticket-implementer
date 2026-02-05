@@ -4,8 +4,11 @@ import {
   fetchTicket,
   generatePlan,
   refinePlan,
+  discussPlan,
+  discussImplementation,
   implementTicket,
   type TicketPlan,
+  type DiscussionMessage,
 } from "../services/copilot.js";
 import type { WorkItem } from "../../utils/azure-devops.js";
 import {
@@ -39,6 +42,8 @@ let currentRepoUrl: string | null = null;
 let sourceType: "remote" | "local" = "remote";
 let canCreatePr: boolean = false;
 let temporaryInstructionFiles: string[] = [];
+let discussionHistory: DiscussionMessage[] = [];
+let implementationDiscussionHistory: DiscussionMessage[] = [];
 
 ticketRouter.post("/fetch", async (req: Request, res: Response) => {
   const { url } = req.body;
@@ -59,15 +64,46 @@ ticketRouter.post("/fetch", async (req: Request, res: Response) => {
 });
 
 ticketRouter.post("/plan", async (req: Request, res: Response) => {
+  const { stream, model } = req.body;
+  const selectedModel = model || "gpt-4.1";
+
   if (!currentTicket) {
     res.status(400).json({ error: "No ticket fetched. Call /fetch first." });
     return;
   }
 
+  const workingDirectory = currentRepo?.localPath;
+
+  // If streaming is requested, use SSE
+  if (stream) {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    try {
+      res.write(`data: ${JSON.stringify({ type: "progress", content: `Using model: ${selectedModel}` })}\n\n`);
+
+      currentPlan = await generatePlan(currentTicket, workingDirectory, (progress) => {
+        res.write(`data: ${JSON.stringify({ type: "progress", content: progress })}\n\n`);
+      }, selectedModel);
+
+      // Clear discussion history when new plan is generated
+      discussionHistory = [];
+
+      res.write(`data: ${JSON.stringify({ type: "complete", ticket: currentTicket, plan: currentPlan })}\n\n`);
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ type: "error", content: error instanceof Error ? error.message : "Failed to generate plan" })}\n\n`);
+    } finally {
+      res.end();
+    }
+    return;
+  }
+
+  // Non-streaming fallback
   try {
-    // Pass working directory if available to load custom instructions
-    const workingDirectory = currentRepo?.localPath;
-    currentPlan = await generatePlan(currentTicket, workingDirectory);
+    currentPlan = await generatePlan(currentTicket, workingDirectory, undefined, selectedModel);
+    // Clear discussion history when new plan is generated
+    discussionHistory = [];
     res.json({
       ticket: currentTicket,
       plan: currentPlan,
@@ -248,12 +284,113 @@ ticketRouter.post("/refine", async (req: Request, res: Response) => {
       workingDirectory
     );
     currentPlan = { ...currentPlan, implementationPlan: refinedPlan };
+    // Clear discussion history when plan is refined
+    discussionHistory = [];
     res.json({ plan: currentPlan });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to refine plan",
     });
   }
+});
+
+ticketRouter.post("/discuss", async (req: Request, res: Response) => {
+  const { question } = req.body;
+
+  if (!currentTicket || !currentPlan) {
+    res.status(400).json({ error: "No ticket or plan. Call /fetch and /plan first." });
+    return;
+  }
+
+  if (!question) {
+    res.status(400).json({ error: "question is required" });
+    return;
+  }
+
+  try {
+    const workingDirectory = currentRepo?.localPath;
+    const response = await discussPlan(
+      currentTicket,
+      currentPlan.implementationPlan,
+      question,
+      discussionHistory,
+      workingDirectory
+    );
+
+    // Add to conversation history
+    discussionHistory.push({ role: "user", content: question });
+    discussionHistory.push({ role: "assistant", content: response });
+
+    // Keep history manageable (last 10 exchanges)
+    if (discussionHistory.length > 20) {
+      discussionHistory = discussionHistory.slice(-20);
+    }
+
+    res.json({ response, history: discussionHistory });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to discuss plan",
+    });
+  }
+});
+
+ticketRouter.get("/discussion-history", (_req: Request, res: Response) => {
+  res.json({ history: discussionHistory });
+});
+
+ticketRouter.post("/clear-discussion", (_req: Request, res: Response) => {
+  discussionHistory = [];
+  res.json({ success: true });
+});
+
+ticketRouter.post("/discuss-implementation", async (req: Request, res: Response) => {
+  const { question, diff } = req.body;
+
+  if (!currentTicket || !currentPlan) {
+    res.status(400).json({ error: "No ticket or plan available." });
+    return;
+  }
+
+  if (!question) {
+    res.status(400).json({ error: "question is required" });
+    return;
+  }
+
+  try {
+    const workingDirectory = currentRepo?.localPath;
+    const response = await discussImplementation(
+      currentTicket,
+      currentPlan.implementationPlan,
+      diff || "(No diff provided)",
+      question,
+      implementationDiscussionHistory,
+      workingDirectory
+    );
+
+    // Add to conversation history
+    implementationDiscussionHistory.push({ role: "user", content: question });
+    implementationDiscussionHistory.push({ role: "assistant", content: response });
+
+    // Keep history manageable (last 10 exchanges)
+    if (implementationDiscussionHistory.length > 20) {
+      implementationDiscussionHistory = implementationDiscussionHistory.slice(-20);
+    }
+
+    res.json({ response, history: implementationDiscussionHistory });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to discuss implementation",
+    });
+  }
+});
+
+ticketRouter.get("/implementation-discussion-history", (_req: Request, res: Response) => {
+  res.json({ history: implementationDiscussionHistory });
+});
+
+ticketRouter.post("/clear-implementation-discussion", (_req: Request, res: Response) => {
+  implementationDiscussionHistory = [];
+  res.json({ success: true });
 });
 
 ticketRouter.post("/update-plan", async (req: Request, res: Response) => {

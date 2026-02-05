@@ -15,6 +15,11 @@ interface Plan {
   implementationPlan: string;
 }
 
+interface DiscussionMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 const AVAILABLE_MODELS = [
   { id: "claude-sonnet-4.5", name: "Claude 4.5 Sonnet", description: "Anthropic's balanced model" },
   { id: "claude-opus-4.5", name: "Claude 4.5 Opus", description: "Anthropic's most capable model" },
@@ -52,6 +57,10 @@ export default function PlanReview({ ticket, plan, onApprove, onCancel, onPlanUp
   const [selectedModel, setSelectedModel] = useState("claude-sonnet-4.5");
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
   const [customCommand, setCustomCommand] = useState("");
+  const [discussionMessages, setDiscussionMessages] = useState<DiscussionMessage[]>([]);
+  const [discussionQuestion, setDiscussionQuestion] = useState("");
+  const [isDiscussing, setIsDiscussing] = useState(false);
+  const [showDiscussion, setShowDiscussion] = useState(false);
 
   const toggleTask = (taskId: string) => {
     const newTasks = new Set(selectedTasks);
@@ -128,10 +137,51 @@ export default function PlanReview({ ticket, plan, onApprove, onCancel, onPlanUp
       onPlanUpdate(data.plan);
       setEditedPlan(data.plan.implementationPlan);
       setFeedback("");
+      // Clear discussion when plan changes
+      setDiscussionMessages([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refine plan");
     } finally {
       setIsRefining(false);
+    }
+  };
+
+  const handleDiscuss = async () => {
+    if (!discussionQuestion.trim()) {
+      return;
+    }
+
+    setIsDiscussing(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/ticket/discuss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: discussionQuestion }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to get response");
+      }
+
+      setDiscussionMessages(data.history);
+      setDiscussionQuestion("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to discuss plan");
+    } finally {
+      setIsDiscussing(false);
+    }
+  };
+
+  const handleClearDiscussion = async () => {
+    try {
+      await fetch("/api/ticket/clear-discussion", { method: "POST" });
+      setDiscussionMessages([]);
+    } catch {
+      // Ignore errors
     }
   };
 
@@ -183,6 +233,65 @@ export default function PlanReview({ ticket, plan, onApprove, onCancel, onPlanUp
           </div>
         ) : (
           <div className="plan-content">{plan.implementationPlan}</div>
+        )}
+      </div>
+
+      <div className="discuss-section">
+        <div className="discuss-header">
+          <h4>Discuss Plan</h4>
+          <button
+            className="discuss-toggle"
+            onClick={() => setShowDiscussion(!showDiscussion)}
+          >
+            {showDiscussion ? "Hide" : "Show"} Discussion
+          </button>
+        </div>
+
+        {showDiscussion && (
+          <>
+            <p className="discuss-hint">
+              Ask questions about the plan - why certain decisions were made, clarify implementation details, or explore alternatives.
+            </p>
+
+            {discussionMessages.length > 0 && (
+              <div className="discussion-messages">
+                {discussionMessages.map((msg, index) => (
+                  <div key={index} className={`discussion-message ${msg.role}`}>
+                    <span className="message-role">{msg.role === "user" ? "You" : "AI"}</span>
+                    <div className="message-content">{msg.content}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="discuss-input-group">
+              <input
+                type="text"
+                className="discuss-input"
+                value={discussionQuestion}
+                onChange={(e) => setDiscussionQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && !isDiscussing && handleDiscuss()}
+                placeholder="e.g., Why are we modifying the UserService component?"
+                disabled={isDiscussing}
+              />
+              <button
+                className="discuss-button"
+                onClick={handleDiscuss}
+                disabled={isDiscussing || !discussionQuestion.trim()}
+              >
+                {isDiscussing ? "..." : "Ask"}
+              </button>
+            </div>
+
+            {discussionMessages.length > 0 && (
+              <button
+                className="clear-discussion"
+                onClick={handleClearDiscussion}
+              >
+                Clear Discussion
+              </button>
+            )}
+          </>
         )}
       </div>
 
