@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { ticketRouter } from "./routes/ticket.js";
+import { reviewRouter } from "./routes/review.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -10,6 +11,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/ticket", ticketRouter);
+app.use("/api/review", reviewRouter);
 
 app.get("/api/health", (_, res) => {
   res.json({ status: "ok" });

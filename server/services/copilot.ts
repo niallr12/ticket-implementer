@@ -23,7 +23,7 @@ const FIGMA_MCP_SERVER = {
 function getMcpServers(includeFigma: boolean) {
   const mcpServers  = {};
   if (includeFigma) {
-    mcpServers['figma-mcp-server']: FIGMA_MCP_SERVER
+    mcpServers['figma-mcp-server'] = FIGMA_MCP_SERVER;
   }
 
   return mcpServers;

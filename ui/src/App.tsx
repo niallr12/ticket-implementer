@@ -2,7 +2,10 @@ import { useState } from "react";
 import TicketInput, { type RepoInfo } from "./components/TicketInput";
 import PlanReview, { type PostTask } from "./components/PlanReview";
 import Implementation from "./components/Implementation";
+import ToolSelector from "./components/ToolSelector";
+import CodeReviewApp from "./pages/CodeReviewApp";
 
+type Tool = "ticket" | "review" | null;
 type Step = "input" | "review" | "implement";
 
 interface Ticket {
@@ -22,6 +25,7 @@ interface Plan {
 }
 
 export default function App() {
+  const [selectedTool, setSelectedTool] = useState<Tool>(null);
   const [step, setStep] = useState<Step>("input");
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -64,8 +68,45 @@ export default function App() {
     setRepoInfo(null);
   };
 
+  const handleBackToSelector = () => {
+    setSelectedTool(null);
+    // Reset ticket state
+    setStep("input");
+    setTicket(null);
+    setPlan(null);
+    setRepoInfo(null);
+  };
+
+  // Tool selector landing page
+  if (selectedTool === null) {
+    return (
+      <div className="container">
+        <h1>Developer Tools</h1>
+        <p>Select a tool to get started</p>
+        <ToolSelector onSelectTool={setSelectedTool} />
+      </div>
+    );
+  }
+
+  // Code Review flow
+  if (selectedTool === "review") {
+    return (
+      <div className="container">
+        <CodeReviewApp onBackToSelector={handleBackToSelector} />
+      </div>
+    );
+  }
+
+  // Ticket Implementer flow (existing)
   return (
     <div className="container">
+      <button
+        className="back-to-selector"
+        onClick={handleBackToSelector}
+      >
+        Back to Tools
+      </button>
+
       <h1>Ticket Implementer</h1>
       <p>Paste an Azure DevOps ticket URL to generate and implement a plan</p>
 
