@@ -1,6 +1,6 @@
 ---
 name: code-connect-expert
-description: Expert-level skill for creating Figma Code Connect files (.figma.tsx) that map Figma design components to React (or Web Component) code. Use when user says "code connect file", "create figma connect", "write code connect", "map component to figma", "figma.connect", "code connect mapping", "connect component props", or needs help writing figma.boolean, figma.enum, figma.instance, figma.children, figma.textContent, figma.className, figma.nestedProps, or variant restrictions. This is the domain expert for all Code Connect authoring tasks.
+description: Expert-level skill for creating, reviewing, and fixing Figma Code Connect files (.figma.tsx) that map Figma design components to React (or Web Component) code. Use when user says "code connect file", "create figma connect", "write code connect", "map component to figma", "figma.connect", "code connect mapping", "connect component props", "fix code connect", "review code connect", "update code connect", or needs help writing figma.boolean, figma.enum, figma.instance, figma.children, figma.textContent, figma.className, figma.nestedProps, or variant restrictions. This is the domain expert for all Code Connect authoring tasks.
 metadata:
   mcp-server: figma, figma-desktop
 ---
@@ -26,6 +26,11 @@ This skill supports both **single component** and **batch (multiple component)**
 - "Create code connect files for all the components on this page: [Figma URL to a frame/page]"
 - "I need code connect files for Button, Card, and Modal — here's the Figma file: [URL]"
 - "Batch connect these components: [list of Figma URLs or a single page URL]"
+
+**Reviewing/fixing existing files:**
+- "Review the code connect file for Button and fix any issues"
+- "This code connect file isn't mapping correctly, can you fix it?"
+- "Update the code connect for Card — new props were added in Figma"
 
 When given a page or frame URL containing multiple components, the skill will use `get_metadata` to discover all components, then process each one.
 
@@ -131,9 +136,11 @@ Before writing code, plan how each Figma property maps to a code prop. Cross-ref
 
 Create the `.figma.tsx` (React) or `.figma.ts` (Web Components) file.
 
-**File naming convention:**
+**File naming and placement:**
 - React: `ComponentName.react.figma.tsx`
 - Web Components: `ComponentName.web.figma.tsx`
+- **Always place the Code Connect file alongside the code component it connects to** (same directory as the component file).
+- **Check if a Code Connect file already exists** before creating a new one. If one exists, update it rather than creating a duplicate. This skill is frequently used to improve existing Code Connect files.
 
 **IMPORTANT rules:**
 - Import `figma` from `'@figma/code-connect/react'` for React or `from '@figma/code-connect/html'` for Web Components
@@ -320,6 +327,54 @@ Code Connect Summary:
 ```
 
 Also remind the user to run `npx figma connect publish` when they're ready to push the snippets to Dev Mode.
+
+## Review and Fix Existing Code Connect Files
+
+This skill is frequently used to improve or fix existing Code Connect files, not just create new ones. When a user asks to review, fix, or improve an existing file:
+
+### Step R1: Read the Existing Code Connect File
+
+Read the existing `.react.figma.tsx` or `.web.figma.tsx` file to understand:
+- Which Figma URL and component it connects to
+- Current property mappings
+- The current example function
+
+### Step R2: Fetch Current Figma Properties via MCP
+
+Extract the file key and node ID from the `figma.connect` URL in the existing file, then run `get_design_context` to get the current Figma component properties.
+
+### Step R3: Compare and Identify Issues
+
+Cross-reference the existing mappings against the MCP data. Look for:
+- **Missing properties**: Figma properties that aren't mapped at all
+- **Stale properties**: Mappings referencing Figma properties that no longer exist (renamed or removed)
+- **Wrong helper type**: e.g., using `figma.string` for something that's actually a boolean or enum
+- **Incorrect enum keys**: Keys that don't match current Figma variant option names
+- **Missing conditional patterns**: Booleans that control visibility but aren't using the `{ true: ..., false: undefined }` pattern
+- **Missing child connections**: Instances or children referenced but not connected separately
+- **Outdated example**: The `example` function doesn't reflect the current prop mappings
+
+### Step R4: Present Findings and Fix
+
+Present a summary of what needs to change, then update the file. If the changes are significant, show a before/after comparison of the key sections.
+
+## Handling State Variants
+
+**IMPORTANT:** Many design system components have a `State` variant (e.g., Default, Hover, Pressed, Focused, Disabled) in Figma. These require special handling:
+
+- **Ignore interactive states** like Hover, Pressed, and Focused — these are CSS/interaction states, not controlled via props. Do NOT map them with `figma.enum`.
+- **Disabled IS typically a prop** — map it separately as `figma.boolean('Disabled')` if the code component has a `disabled` prop, rather than including it in the State enum.
+- If the State variant only contains interactive states plus Disabled, you typically don't need to map it at all — just map Disabled as a standalone boolean.
+- Comment out or exclude the State variant from enum mappings with a note explaining why:
+
+```tsx
+// State variant (Default/Hover/Pressed/Focused/Disabled) is not mapped.
+// Interactive states are handled by CSS, not props.
+// Disabled is mapped as a separate boolean prop below.
+disabled: figma.boolean('Disabled'),
+```
+
+If you encounter a State variant when building a Code Connect file, apply this pattern automatically. Do not ask the user whether to include hover/focus states — the answer is always no.
 
 ## Examples
 
