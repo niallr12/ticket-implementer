@@ -71,9 +71,11 @@ npx figma connect --token=your_token_here
 
 ### Code Connect file naming convention
 
+The default convention is `ComponentName.figma.tsx` / `ComponentName.figma.ts`, but projects may use custom conventions. In this project:
+
 ```
-ComponentName.figma.tsx    # React
-ComponentName.figma.ts     # Web Components / HTML
+ComponentName.react.figma.tsx    # React (primary)
+ComponentName.web.figma.tsx      # Web Components / HTML
 ```
 
 ---
@@ -851,7 +853,7 @@ The `example` function should return code that developers can copy-paste and use
 When text in Figma is set by overriding instance content (not via a property), use `figma.textContent` to capture it.
 
 ### 8. One Code Connect file per component
-Follow the convention of `ComponentName.figma.tsx` alongside or near the component file.
+Follow the project's naming convention (e.g., `ComponentName.react.figma.tsx` for React, `ComponentName.web.figma.tsx` for Web Components) alongside or near the component file.
 
 ### 9. Publish after changes
 Always run `npx figma connect publish` after creating or modifying Code Connect files to update Dev Mode.

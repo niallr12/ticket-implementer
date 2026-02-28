@@ -131,7 +131,9 @@ Before writing code, plan how each Figma property maps to a code prop. Cross-ref
 
 Create the `.figma.tsx` (React) or `.figma.ts` (Web Components) file.
 
-**File naming convention:** `ComponentName.figma.tsx`
+**File naming convention:**
+- React: `ComponentName.react.figma.tsx`
+- Web Components: `ComponentName.web.figma.tsx`
 
 **IMPORTANT rules:**
 - Import `figma` from `'@figma/code-connect/react'` for React or `from '@figma/code-connect/html'` for Web Components
@@ -302,11 +304,11 @@ When processing multiple components, provide a summary after all are complete:
 Code Connect Summary:
 - Total components found: 8
 - Successfully created: 5
-  - Button (42:15) → src/components/Button.figma.tsx
-  - Card (42:20) → src/components/Card.figma.tsx
-  - Input (42:25) → src/components/Input.figma.tsx
-  - Badge (42:30) → src/components/Badge.figma.tsx
-  - Avatar (42:35) → src/components/Avatar.figma.tsx
+  - Button (42:15) → src/components/Button.react.figma.tsx
+  - Card (42:20) → src/components/Card.react.figma.tsx
+  - Input (42:25) → src/components/Input.react.figma.tsx
+  - Badge (42:30) → src/components/Badge.react.figma.tsx
+  - Avatar (42:35) → src/components/Avatar.react.figma.tsx
 - Skipped (already connected): 2
   - Icon (42:40)
   - Tooltip (42:45)
@@ -488,7 +490,7 @@ User says: "Create code connect files for all the components in this frame: http
    a. Run `get_design_context` to get properties and structure
    b. Scan codebase for matching component
    c. Present mapping plan to user
-   d. Write the `.figma.tsx` file
+   d. Write the `.react.figma.tsx` (or `.web.figma.tsx`) file
 5. Track child instances discovered (e.g., Icon used by Button and Card)
 6. Offer to create Code Connect files for child components too
 7. Present final summary
